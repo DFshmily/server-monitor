@@ -2,6 +2,15 @@
 
 > 🌐 自建服务器监控仪表盘 · DFshmily の 🌍
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](backend/requirements.txt)
+[![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/)
+[![Vue 3](https://img.shields.io/badge/frontend-Vue%203-42b883.svg)](frontend/)
+[![Vite](https://img.shields.io/badge/build-Vite-646cff.svg)](frontend/)
+[![ECharts](https://img.shields.io/badge/charts-ECharts%206-da4453.svg)](frontend/)
+[![globe.gl](https://img.shields.io/badge/3D-globe.gl-2ea8d8.svg)](frontend/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/DFshmily/server-monitor/pulls)
+
 基于 FastAPI + Vue 3 的轻量级多服务器监控系统，支持实时数据推送与历史数据回溯，内置 **3D 交互地球** 展示服务器全球分布。
 
 线上示例：https://dashboard.dfshmily.icu
