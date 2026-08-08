@@ -174,23 +174,24 @@ def get_network_metrics() -> dict:
 
     state = _load_traffic_state()
     if state.get("boot_time") != boot_time:
-        # System rebooted: keep lifetime totals, start fresh base for new boot
+        # 首次运行或系统重启：lifetime 以当前计数器为起点（保证 >= 本机流量），
+        # 重启时保留旧 lifetime 值
         state = {
             "boot_time": boot_time,
             "base_recv": current_recv,
             "base_sent": current_sent,
-            "lifetime_recv": state.get("lifetime_recv", 0),
-            "lifetime_sent": state.get("lifetime_sent", 0),
+            "lifetime_recv": max(state.get("lifetime_recv", 0), current_recv),
+            "lifetime_sent": max(state.get("lifetime_sent", 0), current_sent),
         }
+        delta_recv = 0
+        delta_sent = 0
     else:
-        # Same boot: remember the max counter seen so far so we never double-count
-        state["base_recv"] = max(state.get("base_recv", 0), current_recv)
-        state["base_sent"] = max(state.get("base_sent", 0), current_sent)
+        # 同一次启动内：delta = 当前计数器 - 上次采样计数器
+        delta_recv = max(0, current_recv - state.get("base_recv", current_recv))
+        delta_sent = max(0, current_sent - state.get("base_sent", current_sent))
 
-    lifetime_recv = state.get("lifetime_recv", 0) + (current_recv - state["base_recv"]) \
-        if current_recv >= state["base_recv"] else state.get("lifetime_recv", 0)
-    lifetime_sent = state.get("lifetime_sent", 0) + (current_sent - state["base_sent"]) \
-        if current_sent >= state["base_sent"] else state.get("lifetime_sent", 0)
+    lifetime_recv = state.get("lifetime_recv", 0) + delta_recv
+    lifetime_sent = state.get("lifetime_sent", 0) + delta_sent
 
     # Rebase so the next delta is measured from the current counter
     state["base_recv"] = current_recv

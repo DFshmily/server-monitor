@@ -54,9 +54,12 @@ const load15 = computed(() => latest.value.load?.load15 ?? '-')
 // Network: rates (agent-computed) + traffic totals
 const netInRate = computed(() => latest.value.network?.total_recv_rate ?? 0)
 const netOutRate = computed(() => latest.value.network?.total_sent_rate ?? 0)
-// Lifetime totals survive reboots; fall back to session totals
-const netInTotal = computed(() => latest.value.network?.lifetime_bytes_recv ?? latest.value.network?.total_bytes_recv ?? 0)
-const netOutTotal = computed(() => latest.value.network?.lifetime_bytes_sent ?? latest.value.network?.total_bytes_sent ?? 0)
+// 流量：本机启动以来的累计流量（系统网卡计数器）
+const netInTotal = computed(() => latest.value.network?.total_bytes_recv ?? 0)
+const netOutTotal = computed(() => latest.value.network?.total_bytes_sent ?? 0)
+// 总流量：跨重启持续累积（持久化）
+const netInLifetime = computed(() => latest.value.network?.lifetime_bytes_recv ?? 0)
+const netOutLifetime = computed(() => latest.value.network?.lifetime_bytes_sent ?? 0)
 
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B'
@@ -254,6 +257,17 @@ onMounted(() => {
           <div class="detail-content">
             <div class="detail-label">负载</div>
             <div class="detail-value">{{ load1 }} / {{ load5 }} / {{ load15 }}</div>
+          </div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-icon">📈</div>
+          <div class="detail-content">
+            <div class="detail-label">总流量</div>
+            <div class="detail-value net-traffic" title="累计总流量，服务器重启后继续累积">
+              <span class="up">↑ {{ formatBytes(netOutLifetime) }}</span>
+              <span class="down">↓ {{ formatBytes(netInLifetime) }}</span>
+            </div>
           </div>
         </div>
 
