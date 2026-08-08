@@ -1,4 +1,6 @@
 """Server metrics collector using psutil + docker."""
+import os
+import json
 import time
 import socket
 import psutil
@@ -6,6 +8,35 @@ import psutil
 # Network rate tracking state
 _prev_net_io = None
 _prev_net_time = 0.0
+
+# Persistent lifetime traffic state file (survives reboots)
+TRAFFIC_STATE_FILE = os.environ.get(
+    "MONITOR_TRAFFIC_STATE", "/var/lib/server-monitor/traffic_state.json"
+)
+
+
+def _load_traffic_state() -> dict:
+    """Load persisted traffic totals; return empty state if missing/corrupt."""
+    try:
+        with open(TRAFFIC_STATE_FILE, "r") as f:
+            state = json.load(f)
+        if isinstance(state, dict):
+            return state
+    except Exception:
+        pass
+    return {}
+
+
+def _save_traffic_state(state: dict) -> None:
+    """Persist traffic totals so they survive reboots."""
+    try:
+        os.makedirs(os.path.dirname(TRAFFIC_STATE_FILE), exist_ok=True)
+        tmp = TRAFFIC_STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, TRAFFIC_STATE_FILE)
+    except Exception:
+        pass
 
 
 def get_cpu_metrics() -> dict:
@@ -94,7 +125,7 @@ def get_disk_metrics() -> dict:
 
 
 def get_network_metrics() -> dict:
-    """Network I/O per interface + connections + rates."""
+    """Network I/O per interface + connections + rates + persistent totals."""
     global _prev_net_io, _prev_net_time
     io = psutil.net_io_counters(pernic=True)
     interfaces = {}
@@ -134,16 +165,50 @@ def get_network_metrics() -> dict:
     _prev_net_io = interfaces
     _prev_net_time = now
 
-    # Totals (traffic)
-    total_bytes_recv = sum(v["bytes_recv"] for v in interfaces.values())
-    total_bytes_sent = sum(v["bytes_sent"] for v in interfaces.values())
+    # --- Persistent lifetime traffic totals (survive reboots) ---
+    # System counters reset on reboot, so we accumulate deltas into a
+    # persistent file.  total_lifetime_recv/sent keep counting forever.
+    boot_time = psutil.boot_time()
+    current_recv = sum(v["bytes_recv"] for v in interfaces.values())
+    current_sent = sum(v["bytes_sent"] for v in interfaces.values())
+
+    state = _load_traffic_state()
+    if state.get("boot_time") != boot_time:
+        # System rebooted: keep lifetime totals, start fresh base for new boot
+        state = {
+            "boot_time": boot_time,
+            "base_recv": current_recv,
+            "base_sent": current_sent,
+            "lifetime_recv": state.get("lifetime_recv", 0),
+            "lifetime_sent": state.get("lifetime_sent", 0),
+        }
+    else:
+        # Same boot: remember the max counter seen so far so we never double-count
+        state["base_recv"] = max(state.get("base_recv", 0), current_recv)
+        state["base_sent"] = max(state.get("base_sent", 0), current_sent)
+
+    lifetime_recv = state.get("lifetime_recv", 0) + (current_recv - state["base_recv"]) \
+        if current_recv >= state["base_recv"] else state.get("lifetime_recv", 0)
+    lifetime_sent = state.get("lifetime_sent", 0) + (current_sent - state["base_sent"]) \
+        if current_sent >= state["base_sent"] else state.get("lifetime_sent", 0)
+
+    # Rebase so the next delta is measured from the current counter
+    state["base_recv"] = current_recv
+    state["base_sent"] = current_sent
+    state["lifetime_recv"] = lifetime_recv
+    state["lifetime_sent"] = lifetime_sent
+    _save_traffic_state(state)
+
+    # Current boot session totals (raw system counters, reset on reboot)
+    total_bytes_recv = current_recv
+    total_bytes_sent = current_sent
 
     connections = psutil.net_connections(kind='inet')
     tcp_states = {}
     for conn in connections:
         if conn.type == socket.SOCK_STREAM:
-            state = conn.status
-            tcp_states[state] = tcp_states.get(state, 0) + 1
+            st = conn.status
+            tcp_states[st] = tcp_states.get(st, 0) + 1
 
     return {
         "interfaces": interfaces,
@@ -152,6 +217,8 @@ def get_network_metrics() -> dict:
         "total_sent_rate": round(total_sent_rate, 2),
         "total_bytes_recv": total_bytes_recv,
         "total_bytes_sent": total_bytes_sent,
+        "lifetime_bytes_recv": lifetime_recv,
+        "lifetime_bytes_sent": lifetime_sent,
         "tcp_states": tcp_states,
         "total_connections": len(connections),
     }

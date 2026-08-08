@@ -28,6 +28,8 @@ const history = ref([])
 
 const selectedTab = ref('overview')
 const selectedInterval = ref('1min')
+const dateStart = ref('')
+const dateEnd = ref('')
 
 const tabs = [
   { key: 'overview', label: '概览' },
@@ -45,8 +47,27 @@ const intervals = [
   { value: '1min', label: '1分钟' },
   { value: '5min', label: '5分钟' },
   { value: '1h', label: '1小时' },
-  { value: '1d', label: '1天' }
+  { value: '1d', label: '1天' },
+  { value: '1mon', label: '1个月' },
+  { value: 'custom', label: '自定义' }
 ]
+
+// Custom date range helpers
+const todayStr = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const applyCustomRange = () => {
+  if (dateStart.value && dateEnd.value) {
+    selectedInterval.value = 'custom'
+  }
+}
+
+const toTimestamp = (dateStr) => {
+  if (!dateStr) return null
+  return Math.floor(new Date(dateStr + 'T00:00:00').getTime() / 1000)
+}
 
 // Nested data paths matching collector output
 const cpuPercent = computed(() => latest.value.cpu?.percent ?? 0)
@@ -128,7 +149,29 @@ const loadHistory = computed(() =>
 
 const fetchHistory = async () => {
   if (!name.value) return
-  const data = await store.fetchHistory(name.value, selectedInterval.value, 200)
+  let iv = selectedInterval.value
+  let limit = 200
+  let start = null
+  let end = null
+
+  if (iv === '1mon') {
+    // Last 30 days: daily aggregation points
+    iv = '1d'
+    limit = 31
+    end = Math.floor(Date.now() / 1000)
+    start = end - 30 * 86400
+  } else if (iv === 'custom') {
+    if (!dateStart.value || !dateEnd.value) {
+      history.value = []
+      return
+    }
+    iv = '1d'
+    limit = 366
+    start = toTimestamp(dateStart.value)
+    end = toTimestamp(dateEnd.value) + 86400 - 1
+  }
+
+  const data = await store.fetchHistory(name.value, iv, limit, start, end)
   history.value = data || []
 }
 
@@ -206,6 +249,11 @@ onUnmounted(() => {
         >
           {{ opt.label }}
         </button>
+        <div v-if="selectedInterval === 'custom'" class="custom-range">
+          <input type="date" v-model="dateStart" :max="dateEnd || todayStr()" @change="applyCustomRange" />
+          <span class="range-sep">—</span>
+          <input type="date" v-model="dateEnd" :min="dateStart" :max="todayStr()" @change="applyCustomRange" />
+        </div>
       </div>
     </div>
 
@@ -431,6 +479,33 @@ onUnmounted(() => {
   background: white;
   color: var(--purple-600);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.custom-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+}
+
+.custom-range input[type="date"] {
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: white;
+  outline: none;
+}
+
+.custom-range input[type="date"]:focus {
+  border-color: var(--purple-500);
+}
+
+.range-sep {
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 .quick-stats {

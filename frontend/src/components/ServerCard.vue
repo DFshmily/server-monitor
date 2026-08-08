@@ -2,7 +2,6 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import gsap from 'gsap'
-import TimeSelector from './TimeSelector.vue'
 
 const props = defineProps({
   server: {
@@ -13,7 +12,6 @@ const props = defineProps({
 
 const router = useRouter()
 const cardRef = ref(null)
-const selectedInterval = ref('realtime')
 const coresExpanded = ref(false)
 
 const latest = computed(() => props.server.latest || {})
@@ -56,8 +54,9 @@ const load15 = computed(() => latest.value.load?.load15 ?? '-')
 // Network: rates (agent-computed) + traffic totals
 const netInRate = computed(() => latest.value.network?.total_recv_rate ?? 0)
 const netOutRate = computed(() => latest.value.network?.total_sent_rate ?? 0)
-const netInTotal = computed(() => latest.value.network?.total_bytes_recv ?? 0)
-const netOutTotal = computed(() => latest.value.network?.total_bytes_sent ?? 0)
+// Lifetime totals survive reboots; fall back to session totals
+const netInTotal = computed(() => latest.value.network?.lifetime_bytes_recv ?? latest.value.network?.total_bytes_recv ?? 0)
+const netOutTotal = computed(() => latest.value.network?.lifetime_bytes_sent ?? latest.value.network?.total_bytes_sent ?? 0)
 
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B'
@@ -155,7 +154,6 @@ onMounted(() => {
           <span class="dot"></span>
           {{ statusClass === 'online' ? '在线' : '离线' }}
         </span>
-        <TimeSelector v-model="selectedInterval" @click.stop />
       </div>
     </div>
 

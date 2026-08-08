@@ -77,9 +77,12 @@ export const useServersStore = defineStore('servers', () => {
     }
   }
 
-  async function fetchHistory(name, interval = '1min', limit = 100) {
+  async function fetchHistory(name, interval = '1min', limit = 100, start = null, end = null) {
     try {
-      const res = await fetch(`/api/servers/${name}/history?interval=${interval}&limit=${limit}`)
+      let url = `/api/servers/${name}/history?interval=${interval}&limit=${limit}`
+      if (start) url += `&start=${start}`
+      if (end) url += `&end=${end}`
+      const res = await fetch(url)
       const data = await res.json()
       if (servers.value[name]) {
         servers.value[name].history = data

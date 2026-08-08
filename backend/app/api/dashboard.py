@@ -79,21 +79,44 @@ async def server_latest(name: str):
 @router.get("/servers/{name}/history")
 async def server_history(
     name: str,
-    interval: str = Query("1min", description="Aggregation interval: realtime, 1min, 5min, 1h, 1d"),
+    interval: str = Query("1min", description="Aggregation interval: realtime, 1min, 5min, 1h, 1d, 1mon"),
     limit: int = Query(100, ge=1, le=10000),
+    start: int | None = Query(None, description="Start unix timestamp (inclusive)"),
+    end: int | None = Query(None, description="End unix timestamp (inclusive)"),
 ):
     """Get historical aggregated metrics for a server."""
     db = await get_db()
+
+    # Map 1mon → 1d aggregation (30 days of daily points)
+    if interval == "1mon":
+        interval = "1d"
+        if limit == 100:
+            limit = 31
+
     if interval == "realtime":
-        cursor = await db.execute(
-            "SELECT timestamp, data FROM metrics_raw WHERE server_name = ? ORDER BY timestamp DESC LIMIT ?",
-            (name, limit),
-        )
+        sql = "SELECT timestamp, data FROM metrics_raw WHERE server_name = ?"
+        params: list = [name]
+        if start is not None:
+            sql += " AND timestamp >= ?"
+            params.append(start)
+        if end is not None:
+            sql += " AND timestamp <= ?"
+            params.append(end)
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        cursor = await db.execute(sql, params)
     else:
-        cursor = await db.execute(
-            "SELECT timestamp, data FROM metrics_agg WHERE server_name = ? AND interval = ? ORDER BY timestamp DESC LIMIT ?",
-            (name, interval, limit),
-        )
+        sql = "SELECT timestamp, data FROM metrics_agg WHERE server_name = ? AND interval = ?"
+        params = [name, interval]
+        if start is not None:
+            sql += " AND timestamp >= ?"
+            params.append(start)
+        if end is not None:
+            sql += " AND timestamp <= ?"
+            params.append(end)
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        cursor = await db.execute(sql, params)
     rows = await cursor.fetchall()
     return [
         {"timestamp": row["timestamp"], "data": json.loads(row["data"])}
