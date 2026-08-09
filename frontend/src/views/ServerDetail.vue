@@ -42,6 +42,9 @@ const tabs = [
   { key: 'docker', label: 'Docker' }
 ]
 
+// 服务异常数角标
+const servicesFailedCount = computed(() => latest.value.services?.failed ?? 0)
+
 const intervals = [
   { value: 'realtime', label: '实时' },
   { value: '1min', label: '1分钟' },
@@ -84,7 +87,7 @@ const load5 = computed(() => latest.value.load?.load5 ?? '-')
 const load15 = computed(() => latest.value.load?.load15 ?? '-')
 
 const processes = computed(() => latest.value.processes?.top_cpu || [])
-const servicesData = computed(() => latest.value.services || {})
+const servicesList = computed(() => latest.value.services?.services || [])
 const dockerContainers = computed(() => latest.value.docker?.containers || [])
 
 const formatBytes = (bytes) => {
@@ -298,6 +301,9 @@ onUnmounted(() => {
         @click="selectedTab = tab.key"
       >
         {{ tab.label }}
+        <span v-if="tab.key === 'services' && servicesFailedCount > 0" class="tab-badge">
+          {{ servicesFailedCount }}
+        </span>
       </div>
     </div>
 
@@ -419,14 +425,7 @@ onUnmounted(() => {
 
       <!-- Services -->
       <template v-if="selectedTab === 'services'">
-        <div class="animate-in glass-card" style="padding:20px">
-          <h3 class="chart-title">系统服务</h3>
-          <div class="service-summary">
-            <span>总计: {{ servicesData.total || 0 }}</span>
-            <span style="color:var(--status-green)">运行: {{ servicesData.running || 0 }}</span>
-            <span style="color:var(--status-red)" v-if="servicesData.failed > 0">异常: {{ servicesData.failed }}</span>
-          </div>
-        </div>
+        <ServiceStatus class="animate-in" :services="servicesList" />
       </template>
 
       <!-- Docker -->

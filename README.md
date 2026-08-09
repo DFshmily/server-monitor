@@ -1,6 +1,6 @@
 # Server Monitor Dashboard
 
-> 🌐 自建服务器监控仪表盘 · DFshmily の 🌍
+> 🌐 自建服务器监控仪表盘 · DFshmily の🌐
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](backend/requirements.txt)
@@ -25,6 +25,12 @@
 - **进程** — Top 10 CPU / 内存 排行
 - **系统** — 负载 (1/5/15 分钟) / 运行时长 / 服务状态
 - **Docker** — 容器资源占用
+
+### ⚙️ 服务状态说明（systemd）
+- **系统服务 ≠ 进程**：服务是 systemd 的"岗位编制"（unit 定义），进程是实际运行的实例。一个服务可对应 0 / 1 / 多个进程。
+- 状态判定：Agent 每 `MONITOR_INTERVAL`（默认 2s）实时执行 `systemctl list-units --type=service` 采集，按 `active` 字段统计。
+- **显示自动消**：前端仅当 `failed > 0` 时显示"(N 异常)"。服务恢复运行 → 下一次采集 `failed` 归零 → 异常标识自动消失，无需人工干预。
+- **常见假异常**：`systemd-run` 创建的一次性临时服务（如 `gw-restart-*.service`）执行完后会残留为 `failed` 状态，被误判为故障。清理：`sudo systemctl reset-failed <unit>`；排查：`systemctl --failed`。
 
 ### 🌍 3D 交互地球（/map）
 - NASA 夜晚灯光地球贴图 + 地形凹凸纹理 + 星空背景

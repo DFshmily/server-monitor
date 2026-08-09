@@ -363,9 +363,10 @@ def get_services_metrics() -> dict:
             "total": len(services),
             "failed": failed,
             "running": sum(1 for s in services if s['active'] == 'active'),
+            "services": services,
         }
     except Exception:
-        return {"total": 0, "failed": 0, "running": 0}
+        return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
 def collect_all() -> dict:
