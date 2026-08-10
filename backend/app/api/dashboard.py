@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.config import API_KEY
+from app.core.auth import decode_token
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -19,6 +20,27 @@ async def verify_token(authorization: str = Header(None)):
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
+
+
+async def optional_user(authorization: str = Header(None)) -> dict | None:
+    """Return user dict if a valid JWT is present, else None (public access)."""
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    payload = decode_token(parts[1])
+    if not payload:
+        return None
+    return {"email": payload.get("sub"), "role": payload.get("role")}
+
+
+async def require_user(authorization: str = Header(None)) -> dict:
+    """Require a valid JWT (any logged-in user)."""
+    user = await optional_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return user
 
 
 @router.get("/servers")
@@ -56,7 +78,7 @@ async def get_alias(name: str):
     return {"name": name, "alias": row["alias"] if row else None}
 
 
-@router.put("/servers/{name}/alias", dependencies=[Depends(verify_token)])
+@router.put("/servers/{name}/alias", dependencies=[Depends(require_user)])
 async def set_alias(name: str, payload: AliasUpdate):
     """Set the display alias for a server."""
     alias = payload.alias.strip()
@@ -73,8 +95,12 @@ async def set_alias(name: str, payload: AliasUpdate):
 
 
 @router.get("/servers/{name}/latest")
-async def server_latest(name: str):
-    """Get the latest metrics for a server."""
+async def server_latest(name: str, user: dict | None = Depends(optional_user)):
+    """Get the latest metrics for a server.
+
+    Public: returns the full payload minus sensitive fields (service
+    details, process list, hostname) when not logged in.
+    """
     db = await get_db()
     cursor = await db.execute(
         "SELECT data FROM metrics_raw WHERE server_name = ? ORDER BY timestamp DESC LIMIT 1",
@@ -83,10 +109,24 @@ async def server_latest(name: str):
     row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Server not found")
-    return json.loads(row["data"])
+    data = json.loads(row["data"])
+
+    # Strip sensitive details for anonymous visitors
+    if not user:
+        data = dict(data)
+        data.pop("hostname", None)
+        if "services" in data:
+            data["services"] = {
+                "total": data["services"].get("total", 0),
+                "failed": data["services"].get("failed", 0),
+                "running": data["services"].get("running", 0),
+            }
+        if "processes" in data:
+            data["processes"] = {"top_cpu": [], "top_memory": []}
+    return data
 
 
-@router.get("/servers/{name}/history")
+@router.get("/servers/{name}/history", dependencies=[Depends(require_user)])
 async def server_history(
     name: str,
     interval: str = Query("1min", description="Aggregation interval: realtime, 1min, 5min, 1h, 1d, 1mon"),
@@ -134,7 +174,7 @@ async def server_history(
     ]
 
 
-@router.get("/servers/{name}/overview")
+@router.get("/servers/{name}/overview", dependencies=[Depends(require_user)])
 async def server_overview(name: str):
     """Summary stats for the overview card."""
     db = await get_db()

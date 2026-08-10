@@ -40,11 +40,17 @@ export const useServersStore = defineStore('servers', () => {
     }
   }
 
+  // 带 token 的请求头(详情页/管理页需要登录)
+  function authHeaders() {
+    const token = localStorage.getItem('monitor_token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
   async function saveAlias(name, alias) {
     try {
       const res = await fetch(`/api/servers/${name}/alias`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ alias })
       })
       if (res.ok) {
@@ -63,7 +69,7 @@ export const useServersStore = defineStore('servers', () => {
 
   async function fetchLatest(name) {
     try {
-      const res = await fetch(`/api/servers/${name}/latest`)
+      const res = await fetch(`/api/servers/${name}/latest`, { headers: authHeaders() })
       const data = await res.json()
       if (servers.value[name]) {
         servers.value[name].latest = data
@@ -82,7 +88,7 @@ export const useServersStore = defineStore('servers', () => {
       let url = `/api/servers/${name}/history?interval=${interval}&limit=${limit}`
       if (start) url += `&start=${start}`
       if (end) url += `&end=${end}`
-      const res = await fetch(url)
+      const res = await fetch(url, { headers: authHeaders() })
       const data = await res.json()
       if (servers.value[name]) {
         servers.value[name].history = data

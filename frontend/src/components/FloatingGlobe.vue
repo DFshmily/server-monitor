@@ -1,15 +1,31 @@
 <script setup>
 import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+
+const props = defineProps({
+  // 默认可点击跳转地图;登录页等场景传 clickable=false 只展示动画
+  clickable: { type: Boolean, default: true },
+  // 尺寸(px),默认 26;登录页传更大值
+  size: { type: Number, default: 26 }
+})
 
 const router = useRouter()
 
 const goToMap = () => {
-  router.push('/map')
+  if (props.clickable) router.push('/map')
 }
+
+// 动态尺寸:地球本体按比例缩放
+const globeStyle = computed(() => ({
+  width: props.size + 'px',
+  height: props.size + 'px',
+  marginLeft: (props.size * 0.23) + 'px',
+  verticalAlign: -(props.size * 0.12) + 'px'
+}))
 </script>
 
 <template>
-  <button class="inline-globe" @click="goToMap" title="查看服务器分布">
+  <button class="inline-globe" :style="globeStyle" @click="goToMap" title="查看服务器分布">
     <span class="globe-glow"></span>
     <span class="globe-sphere">
       <span class="globe-lines"></span>
@@ -26,14 +42,10 @@ const goToMap = () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
   border: none;
   border-radius: 50%;
   padding: 0;
   cursor: pointer;
-  vertical-align: -3px;
-  margin-left: 6px;
   background: radial-gradient(circle at 35% 30%, #2e6db8, #0a1230 75%);
   box-shadow:
     0 0 12px rgba(0, 255, 255, 0.35),
@@ -70,7 +82,7 @@ const goToMap = () => {
 
 .globe-sphere {
   position: absolute;
-  inset: 2px;
+  inset: 8%;
   border-radius: 50%;
   overflow: hidden;
   background: radial-gradient(circle at 35% 30%, #3d7bd9, #0d1538 75%);
@@ -107,23 +119,26 @@ const goToMap = () => {
   animation: shineSweep 4.5s ease-in-out infinite;
 }
 
-/* Dual pulsing ripple rings */
+/* ── 涟漪环(原版 border 样式 + 每 2 秒切换一种颜色) ── */
 .globe-ring {
   position: absolute;
+  inset: -3px;
   border-radius: 50%;
   border: 1.5px solid rgba(0, 255, 255, 0.7);
   pointer-events: none;
 }
 
+/* 两个环:原版扩散动画 + 七色循环(14s 循环 = 每色 2s) */
 .ring-1 {
-  inset: -3px;
-  animation: ringPulse 2.5s ease-out infinite;
+  animation:
+    ringPulse 2.5s ease-out infinite,
+    colorCycle 14s linear infinite;
 }
 
 .ring-2 {
-  inset: -3px;
-  border-color: rgba(124, 58, 237, 0.6);
-  animation: ringPulse 2.5s ease-out infinite 1.25s;
+  animation:
+    ringPulse 2.5s ease-out infinite 1.25s,
+    colorCycle 14s linear infinite;
 }
 
 /* Tiny satellite dot orbiting the globe */
@@ -138,6 +153,7 @@ const goToMap = () => {
   box-shadow: 0 0 6px #00ffff, 0 0 12px rgba(0, 255, 255, 0.8);
   animation: orbit 4s linear infinite;
   pointer-events: none;
+  margin: -2px 0 0 -2px;
 }
 
 @keyframes spin {
@@ -161,6 +177,7 @@ const goToMap = () => {
   100% { transform: rotate(360deg); opacity: 0.4; }
 }
 
+/* 涟漪扩散(原版动画):scale 放大 + 淡出 */
 @keyframes ringPulse {
   0% {
     transform: scale(0.85);
@@ -170,6 +187,17 @@ const goToMap = () => {
     transform: scale(1.5);
     opacity: 0;
   }
+}
+
+/* 七色循环:每 2 秒切换一种颜色,14s 一个完整循环 */
+@keyframes colorCycle {
+  0%, 14.28%   { border-color: #ff3b30; }  /* 红 */
+  14.29%, 28.57% { border-color: #ff9500; }  /* 橙 */
+  28.58%, 42.85% { border-color: #ffcc00; }  /* 黄 */
+  42.86%, 57.14% { border-color: #34c759; }  /* 绿 */
+  57.15%, 71.42% { border-color: #00c7be; }  /* 青 */
+  71.43%, 85.71% { border-color: #007aff; }  /* 蓝 */
+  85.72%, 100%   { border-color: #af52de; }  /* 紫 */
 }
 
 @keyframes orbit {
