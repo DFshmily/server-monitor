@@ -1,14 +1,24 @@
 """Dashboard query endpoints."""
 import json
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel
 from app.core.database import get_db
+from app.core.config import API_KEY
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 
 class AliasUpdate(BaseModel):
     alias: str
+
+
+async def verify_token(authorization: str = Header(None)):
+    """Require Bearer token for write endpoints."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 @router.get("/servers")
@@ -46,7 +56,7 @@ async def get_alias(name: str):
     return {"name": name, "alias": row["alias"] if row else None}
 
 
-@router.put("/servers/{name}/alias")
+@router.put("/servers/{name}/alias", dependencies=[Depends(verify_token)])
 async def set_alias(name: str, payload: AliasUpdate):
     """Set the display alias for a server."""
     alias = payload.alias.strip()

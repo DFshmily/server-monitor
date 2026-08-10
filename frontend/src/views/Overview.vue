@@ -46,9 +46,8 @@ onUnmounted(() => {
         <p class="subtitle">实时监控所有服务器状态</p>
       </div>
       <div class="header-right">
-        <span class="connection-status" :class="{ online: connected }">
+        <span class="connection-status" :class="{ online: connected }" title="实时数据推送通道">
           <span class="status-dot"></span>
-          {{ connected ? '已连接' : '未连接' }}
         </span>
       </div>
     </div>
@@ -89,31 +88,20 @@ onUnmounted(() => {
 .connection-status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.connection-status.online {
-  color: var(--status-green);
+  justify-content: center;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--text-tertiary);
+  background: #c7c7cc;
+  transition: all 0.3s ease;
 }
 
 .connection-status.online .status-dot {
   background: var(--status-green);
-  box-shadow: 0 0 8px rgba(52, 199, 89, 0.4);
+  box-shadow: 0 0 10px rgba(52, 199, 89, 0.5);
 }
 
 .empty-state {
