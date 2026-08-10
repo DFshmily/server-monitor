@@ -92,6 +92,13 @@ async def require_admin(user: dict = Depends(get_current_user)):
     return user
 
 
+async def require_root_admin(user: dict = Depends(get_current_user)):
+    """Only the root account (admin@dfshmily.icu) may grant/revoke admin roles."""
+    if user["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="需要超级管理员权限")
+    return user
+
+
 # ── Public: send code / register / login ──────────────────────────
 @router.post("/send-code")
 async def send_code(req: SendCodeRequest):
@@ -310,14 +317,17 @@ async def list_users():
     return [dict(r) for r in rows]
 
 
-@router.post("/users/role", dependencies=[Depends(require_admin)])
-async def set_role(req: RoleRequest, admin: dict = Depends(require_admin)):
+@router.post("/users/role", dependencies=[Depends(require_root_admin)])
+async def set_role(req: RoleRequest, admin: dict = Depends(require_root_admin)):
     email = req.email.lower()
     if email == admin["email"]:
         raise HTTPException(status_code=400, detail="不能修改自己的角色")
     if req.role not in ("admin", "user"):
         raise HTTPException(status_code=400, detail="角色必须是 admin 或 user")
     db = await get_db()
+    cur = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if not await cur.fetchone():
+        raise HTTPException(status_code=404, detail="用户不存在")
     await db.execute("UPDATE users SET role = ? WHERE email = ?", (req.role, email))
     await db.commit()
     return {"ok": True}
@@ -329,6 +339,13 @@ async def set_disabled(req: DisableRequest, admin: dict = Depends(require_admin)
     if email == admin["email"]:
         raise HTTPException(status_code=400, detail="不能禁用自己的账号")
     db = await get_db()
+    cur = await db.execute("SELECT role FROM users WHERE email = ?", (email,))
+    target = await cur.fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    # 只有超级管理员能禁用/启用其他管理员
+    if target["role"] == "admin" and admin["email"] != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="不能操作其他管理员")
     await db.execute("UPDATE users SET disabled = ? WHERE email = ?", (int(req.disabled), email))
     await db.commit()
     return {"ok": True}

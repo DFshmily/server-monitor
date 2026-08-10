@@ -1,10 +1,13 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
+
+const ROOT_EMAIL = 'admin@dfshmily.icu'
+const isRoot = computed(() => auth.user?.email === ROOT_EMAIL)
 
 const users = ref([])
 const invites = ref([])
@@ -312,19 +315,22 @@ onMounted(async () => {
         </div>
         <div v-for="u in users" :key="u.id" class="user-row">
           <span class="user-email">{{ u.email }}</span>
-          <span><span class="role-badge" :class="u.role">{{ u.role === 'admin' ? '管理员' : '用户' }}</span></span>
+          <span><span class="role-badge" :class="u.role">{{ u.email === ROOT_EMAIL ? '超级管理员' : (u.role === 'admin' ? '管理员' : '用户') }}</span></span>
           <span>
             <span class="status-dot-mini" :class="{ on: !u.disabled }"></span>
             {{ u.disabled ? '已禁用' : '正常' }}
           </span>
           <span class="user-time">{{ formatTime(u.created_at) }}</span>
           <span class="user-actions">
-            <button v-if="u.email !== auth.user?.email" class="link-btn" @click="toggleRole(u)">
-              {{ u.role === 'admin' ? '取消管理' : '设为管理' }}
-            </button>
-            <button v-if="u.email !== auth.user?.email" class="link-btn danger" @click="toggleDisabled(u)">
-              {{ u.disabled ? '启用' : '禁用' }}
-            </button>
+            <template v-if="u.email !== auth.user?.email">
+              <button v-if="isRoot" class="link-btn" @click="toggleRole(u)">
+                {{ u.role === 'admin' ? '取消管理' : '设为管理' }}
+              </button>
+              <button v-if="isRoot || u.role !== 'admin'" class="link-btn danger" @click="toggleDisabled(u)">
+                {{ u.disabled ? '启用' : '禁用' }}
+              </button>
+              <span v-if="!isRoot && u.role === 'admin'" class="muted-tag">仅超管可操作</span>
+            </template>
             <span v-else class="self-tag">自己</span>
           </span>
         </div>
@@ -569,6 +575,7 @@ onMounted(async () => {
 }
 .link-btn.danger { color: var(--status-red); }
 .self-tag { color: var(--text-tertiary); font-size: 12px; }
+.muted-tag { color: var(--text-tertiary); font-size: 12px; }
 
 .pass-form {
   display: flex;
