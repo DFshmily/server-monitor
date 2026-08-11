@@ -205,6 +205,14 @@ watch(selectedInterval, () => {
   fetchHistory()
 })
 
+// 实时模式：WebSocket 每 2 秒推送最新值 → 增量追加到图表，保持 200 点滚动窗口
+watch(latest, (newData) => {
+  if (selectedInterval.value !== 'realtime') return
+  if (!newData || Object.keys(newData).length === 0) return
+  const ts = newData.timestamp || Math.floor(Date.now() / 1000)
+  history.value = [...history.value, { timestamp: ts, data: newData }].slice(-200)
+})
+
 watch(selectedTab, () => {
   setTimeout(() => {
     const elements = sectionRef.value?.querySelectorAll('.animate-in')
