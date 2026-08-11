@@ -15,6 +15,10 @@ API_KEY = os.environ.get("MONITOR_API_KEY", "default-key")
 JWT_SECRET = os.environ.get("MONITOR_JWT_SECRET", f"jwt-{API_KEY}-salt-2026")
 JWT_EXPIRE_SECONDS = int(os.environ.get("MONITOR_JWT_EXPIRE", "86400"))  # 24h default
 
+# Alerts: Telegram push (optional; alerts work silently without it)
+TELEGRAM_TOKEN = os.environ.get("MONITOR_TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("MONITOR_TELEGRAM_CHAT_ID", "")
+
 # SMTP for email verification codes
 SMTP_HOST = os.environ.get("MONITOR_SMTP_HOST", "smtp.qq.com")
 SMTP_PORT = int(os.environ.get("MONITOR_SMTP_PORT", "465"))

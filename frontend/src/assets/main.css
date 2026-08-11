@@ -33,6 +33,22 @@
   --status-blue: #007aff;
 }
 
+/* ── Dark theme (Apple-like) ── */
+[data-theme="dark"] {
+  --glass-bg: rgba(28, 28, 30, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --text-primary: #f5f5f7;
+  --text-secondary: #aeaeb2;
+  --text-tertiary: #6e6e73;
+  --bg-page: #000000;
+  --bg-card: rgba(28, 28, 30, 0.72);
+  --status-green: #32d74b;
+  --status-red: #ff453a;
+  --status-orange: #ff9f0a;
+  --status-blue: #0a84ff;
+}
+
 * {
   margin: 0;
   padding: 0;

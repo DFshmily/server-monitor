@@ -12,6 +12,7 @@ from app.core.auth import (
 )
 from app.core.mailer import send_verification_code
 from app.core.config import SMTP_USER
+from app.core.database import audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -209,9 +210,28 @@ async def register(req: RegisterRequest):
 async def login(req: LoginRequest):
     db = await get_db()
     email = req.email.lower()
+    now = int(time.time())
+
+    # ── Brute-force protection: 5 failed attempts => 15 min lockout ──
+    cur = await db.execute(
+        "SELECT COUNT(*) as n, MAX(created_at) as last FROM login_attempts WHERE email = ? AND success = 0 AND created_at > ?",
+        (email, now - 900),
+    )
+    row = await cur.fetchone()
+    if row and row["n"] >= 5:
+        wait = 900 - (now - row["last"])
+        raise HTTPException(status_code=429, detail=f"尝试次数过多，请 {max(wait, 1)} 秒后再试")
+
     cur = await db.execute("SELECT * FROM users WHERE email = ?", (email,))
     row = await cur.fetchone()
-    if not row or not verify_password(req.password, row["password_hash"]):
+    ok = bool(row and verify_password(req.password, row["password_hash"]))
+    await db.execute(
+        "INSERT INTO login_attempts (email, success, created_at) VALUES (?, ?, ?)",
+        (email, int(ok), now),
+    )
+    await db.commit()
+
+    if not row or not ok:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     if row["disabled"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
@@ -240,7 +260,7 @@ async def change_password(req: PasswordRequest, user: dict = Depends(get_current
 
 # ── Admin: invites ────────────────────────────────────────────────
 @router.post("/invites", dependencies=[Depends(require_admin)])
-async def create_invites(req: InviteBatchRequest):
+async def create_invites(req: InviteBatchRequest, admin: dict = Depends(require_admin)):
     db = await get_db()
     codes = generate_invite_code(req.count)
     now = int(time.time())
@@ -251,11 +271,12 @@ async def create_invites(req: InviteBatchRequest):
             (c, now, exp),
         )
     await db.commit()
+    await audit_log(admin["email"], "create_invites", f"生成 {len(codes)} 个邀请码，有效期 {req.days} 天")
     return {"codes": codes, "expires_in_days": req.days}
 
 
 @router.post("/invites/manual", dependencies=[Depends(require_admin)])
-async def create_invite_manual(req: InviteManualRequest):
+async def create_invite_manual(req: InviteManualRequest, admin: dict = Depends(require_admin)):
     """Manually add a custom invite code with a chosen validity period."""
     db = await get_db()
     code = req.code.strip().upper()
@@ -273,6 +294,7 @@ async def create_invite_manual(req: InviteManualRequest):
         (code, now, now + req.days * 86400),
     )
     await db.commit()
+    await audit_log(admin["email"], "create_invite_manual", f"手动添加邀请码 {code}，{req.days} 天")
     return {"ok": True, "code": code, "expires_in_days": req.days}
 
 
@@ -281,7 +303,7 @@ class InviteDeleteRequest(BaseModel):
 
 
 @router.post("/invites/delete", dependencies=[Depends(require_admin)])
-async def delete_invite(req: InviteDeleteRequest):
+async def delete_invite(req: InviteDeleteRequest, admin: dict = Depends(require_admin)):
     """Delete/cancel an invite code (only if unused)."""
     db = await get_db()
     code = req.code.strip().upper()
@@ -293,6 +315,7 @@ async def delete_invite(req: InviteDeleteRequest):
         raise HTTPException(status_code=400, detail="该邀请码已被使用，不能删除")
     await db.execute("DELETE FROM invites WHERE id = ?", (inv["id"],))
     await db.commit()
+    await audit_log(admin["email"], "delete_invite", f"取消邀请码 {code}")
     return {"ok": True, "code": code}
 
 
@@ -330,6 +353,7 @@ async def set_role(req: RoleRequest, admin: dict = Depends(require_root_admin)):
         raise HTTPException(status_code=404, detail="用户不存在")
     await db.execute("UPDATE users SET role = ? WHERE email = ?", (req.role, email))
     await db.commit()
+    await audit_log(admin["email"], "set_role", f"{email} → {req.role}")
     return {"ok": True}
 
 
@@ -348,4 +372,5 @@ async def set_disabled(req: DisableRequest, admin: dict = Depends(require_admin)
         raise HTTPException(status_code=403, detail="不能操作其他管理员")
     await db.execute("UPDATE users SET disabled = ? WHERE email = ?", (int(req.disabled), email))
     await db.commit()
+    await audit_log(admin["email"], "set_disabled", f"{email} → {'禁用' if req.disabled else '启用'}")
     return {"ok": True}

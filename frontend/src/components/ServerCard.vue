@@ -14,6 +14,30 @@ const router = useRouter()
 const cardRef = ref(null)
 const coresExpanded = ref(false)
 
+// ── Sparkline: last 30 min CPU trend (login-only, silent fail) ──
+const sparkPoints = ref([])
+const sparkPolyline = computed(() => {
+  const pts = sparkPoints.value
+  if (pts.length < 2) return ''
+  return pts.map((v, i) => {
+    const x = (i / (pts.length - 1)) * 64
+    const y = 19 - (Math.min(Math.max(v, 0), 100) / 100) * 18
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+})
+onMounted(async () => {
+  const token = localStorage.getItem('monitor_token')
+  if (!token) return
+  try {
+    const res = await fetch(`/api/servers/${props.server.name}/history?interval=1min&limit=30`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    sparkPoints.value = (data || []).map(d => d.data?.cpu?.percent ?? 0)
+  } catch (e) { /* silent */ }
+})
+
 const latest = computed(() => props.server.latest || {})
 const hasData = computed(() => !!latest.value.cpu)
 
@@ -153,6 +177,9 @@ onMounted(() => {
         </div>
       </div>
       <div class="header-right">
+        <svg v-if="sparkPolyline" class="sparkline" width="64" height="20" viewBox="0 0 64 20" aria-label="CPU 近30分钟走势">
+          <polyline :points="sparkPolyline" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+        </svg>
         <span class="badge" :class="statusClass === 'online' ? 'badge-online' : 'badge-offline'">
           <span class="dot"></span>
           {{ statusClass === 'online' ? '在线' : '离线' }}
@@ -370,6 +397,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.sparkline {
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 
 .badge {

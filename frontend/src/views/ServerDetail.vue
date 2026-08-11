@@ -182,6 +182,44 @@ const goBack = () => {
   router.push('/')
 }
 
+// 导出当前视图数据为 CSV
+const exportCSV = () => {
+  if (!history.value || history.value.length === 0) {
+    alert('暂无可导出的数据')
+    return
+  }
+  const fmt = (ts) => {
+    const d = new Date(ts > 1e12 ? ts : ts * 1000)
+    const p = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  }
+  const diskOf = (dd) => {
+    const parts = dd?.partitions
+    const root = parts?.find(p => p.mountpoint === '/') || parts?.[0]
+    return root?.percent ?? (dd?.percent ?? '')
+  }
+  const netOf = (nd) => nd?.bytes_recv_rate ?? ''
+  const rows = [['时间', 'CPU%', '内存%', '磁盘%', '网络入(B/s)', '网络出(B/s)', '负载1']]
+  history.value.forEach(d => {
+    rows.push([
+      fmt(d.timestamp),
+      d.data?.cpu?.percent ?? '',
+      d.data?.memory?.percent ?? '',
+      diskOf(d.data?.disk),
+      netOf(d.data?.network),
+      d.data?.network?.bytes_sent_rate ?? '',
+      d.data?.load?.load1 ?? ''
+    ])
+  })
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${name.value}_${selectedInterval.value}_${Date.now()}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 const sectionRef = ref(null)
 
 onMounted(async () => {
@@ -260,6 +298,7 @@ onUnmounted(() => {
         >
           {{ opt.label }}
         </button>
+        <button class="csv-btn" title="导出当前数据为 CSV" @click="exportCSV">⬇ 导出</button>
         <div v-if="selectedInterval === 'custom'" class="custom-range">
           <input type="date" v-model="dateStart" :max="dateEnd || todayStr()" @change="applyCustomRange" />
           <span class="range-sep">—</span>
@@ -486,6 +525,22 @@ onUnmounted(() => {
   background: white;
   color: var(--purple-600);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.csv-btn {
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--purple-600);
+  cursor: pointer;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  background: rgba(124, 58, 237, 0.06);
+  transition: all 0.2s ease;
+}
+
+.csv-btn:hover {
+  background: rgba(124, 58, 237, 0.12);
 }
 
 .custom-range {

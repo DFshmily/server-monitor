@@ -67,6 +67,45 @@ async def init_db() -> None:
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email);
+
+        CREATE TABLE IF NOT EXISTS alert_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_name TEXT NOT NULL,          -- '*' = all servers
+            metric TEXT NOT NULL,               -- cpu, memory, disk, load1, net_in, net_out
+            operator TEXT NOT NULL DEFAULT '>', -- > | >= | < | <=
+            threshold REAL NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS alert_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id INTEGER,
+            server_name TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            value REAL,
+            message TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'threshold',  -- threshold | offline | recovered
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_alert_events_ts ON alert_events(created_at);
+
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            success INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email, created_at);
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(created_at);
     """)
     await db.commit()
 
@@ -76,3 +115,14 @@ async def close_db() -> None:
     if _db:
         await _db.close()
         _db = None
+
+
+async def audit_log(email: str, action: str, detail: str | None = None) -> None:
+    """Write an audit log entry (called from admin endpoints)."""
+    db = await get_db()
+    import time
+    await db.execute(
+        "INSERT INTO audit_logs (email, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        (email, action, detail, int(time.time())),
+    )
+    await db.commit()

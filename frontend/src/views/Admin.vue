@@ -27,6 +27,74 @@ const newPass = ref('')
 const confirmPass = ref('')
 const showChangePass = ref(false)
 
+// ── 告警规则 ──
+const rules = ref([])
+const events = ref([])
+const audits = ref([])
+const ruleForm = ref({ server_name: '*', metric: 'cpu', operator: '>', threshold: 80, enabled: true })
+const METRIC_OPTIONS = [
+  { value: 'cpu', label: 'CPU 使用率 %' },
+  { value: 'memory', label: '内存使用率 %' },
+  { value: 'disk', label: '磁盘使用率 %' },
+  { value: 'load1', label: '负载 1 分钟' },
+  { value: 'load5', label: '负载 5 分钟' },
+  { value: 'load15', label: '负载 15 分钟' },
+  { value: 'net_in', label: '网络入速率 B/s' },
+  { value: 'net_out', label: '网络出速率 B/s' }
+]
+const OP_OPTIONS = ['>', '>=', '<', '<=']
+
+async function loadRules() {
+  try {
+    rules.value = await api('/api/alerts/rules')
+  } catch (e) { error.value = e.message }
+}
+async function loadEvents() {
+  try {
+    events.value = await api('/api/alerts/events?limit=20')
+  } catch (e) { error.value = e.message }
+}
+async function loadAudits() {
+  try {
+    audits.value = await api('/api/alerts/audit?limit=20')
+  } catch (e) { error.value = e.message }
+}
+async function addRule() {
+  error.value = ''
+  success.value = ''
+  try {
+    await api('/api/alerts/rules', {
+      method: 'POST',
+      body: JSON.stringify(ruleForm.value)
+    })
+    success.value = '✅ 告警规则已添加'
+    await loadRules()
+  } catch (e) { error.value = e.message }
+}
+async function toggleRule(r) {
+  try {
+    await api(`/api/alerts/rules/${r.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: !r.enabled })
+    })
+    await loadRules()
+  } catch (e) { error.value = e.message }
+}
+async function deleteRule(r) {
+  error.value = ''
+  success.value = ''
+  try {
+    await api(`/api/alerts/rules/${r.id}`, { method: 'DELETE' })
+    success.value = `❌ 已删除规则 ${r.metric} ${r.operator} ${r.threshold}`
+    await loadRules()
+  } catch (e) { error.value = e.message }
+}
+const formatTs = (ts) => {
+  if (!ts) return '-'
+  return new Date(ts * 1000).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+}
+const ruleServerLabel = (sn) => sn === '*' ? '全部服务器' : sn
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -181,6 +249,9 @@ onMounted(async () => {
   try {
     await loadUsers()
     await loadInvites()
+    await loadRules()
+    await loadEvents()
+    await loadAudits()
   } catch (e) {
     error.value = e.message
   }
@@ -333,6 +404,73 @@ onMounted(async () => {
             </template>
             <span v-else class="self-tag">自己</span>
           </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 告警规则 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>🚨 告警规则</h3>
+        <span class="subtitle">触发后推送到 Telegram（每规则 30 分钟冷却）</span>
+      </div>
+      <div class="rule-form">
+        <select v-model="ruleForm.server_name" class="count-input">
+          <option value="*">全部服务器</option>
+          <option value="oracle">oracle</option>
+          <option value="tencent">tencent</option>
+        </select>
+        <select v-model="ruleForm.metric" class="count-input">
+          <option v-for="m in METRIC_OPTIONS" :key="m.value" :value="m.value">{{ m.label }}</option>
+        </select>
+        <select v-model="ruleForm.operator" class="count-input" style="width:70px">
+          <option v-for="op in OP_OPTIONS" :key="op" :value="op">{{ op }}</option>
+        </select>
+        <input v-model.number="ruleForm.threshold" type="number" class="count-input" placeholder="阈值" style="width:90px" />
+        <button class="btn-primary" @click="addRule">添加规则</button>
+      </div>
+      <div class="user-table">
+        <div class="user-row header">
+          <span>服务器</span><span>指标</span><span>条件</span><span>状态</span><span>操作</span>
+        </div>
+        <div v-for="r in rules" :key="r.id" class="user-row">
+          <span>{{ ruleServerLabel(r.server_name) }}</span>
+          <span>{{ r.metric }}</span>
+          <span>{{ r.operator }} {{ r.threshold }}</span>
+          <span>
+            <span class="status-dot-mini" :class="{ on: r.enabled }"></span>
+            {{ r.enabled ? '启用' : '停用' }}
+          </span>
+          <span class="user-actions">
+            <button class="link-btn" @click="toggleRule(r)">{{ r.enabled ? '停用' : '启用' }}</button>
+            <button class="link-btn danger" @click="deleteRule(r)">删除</button>
+          </span>
+        </div>
+        <div v-if="rules.length === 0" class="user-row"><span class="muted-tag">还没有告警规则</span></div>
+      </div>
+    </div>
+
+    <!-- 告警事件 + 审计日志 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>📜 告警记录与审计日志</h3>
+      </div>
+      <div class="logs-grid">
+        <div>
+          <h4 style="margin:8px 0 8px;font-size:13px;color:var(--text-secondary)">告警事件</h4>
+          <div v-for="e in events" :key="e.id" class="log-item" :class="{ offline: e.kind === 'offline' }">
+            <span class="log-time">{{ formatTs(e.created_at) }}</span>
+            <span class="log-msg">{{ e.message }}</span>
+          </div>
+          <div v-if="events.length === 0" class="muted-tag">暂无告警记录</div>
+        </div>
+        <div>
+          <h4 style="margin:8px 0 8px;font-size:13px;color:var(--text-secondary)">管理操作</h4>
+          <div v-for="a in audits" :key="a.id" class="log-item">
+            <span class="log-time">{{ formatTs(a.created_at) }}</span>
+            <span class="log-msg">{{ a.email }} · {{ a.action }} {{ a.detail || '' }}</span>
+          </div>
+          <div v-if="audits.length === 0" class="muted-tag">暂无操作记录</div>
         </div>
       </div>
     </div>
@@ -576,6 +714,47 @@ onMounted(async () => {
 .link-btn.danger { color: var(--status-red); }
 .self-tag { color: var(--text-tertiary); font-size: 12px; }
 .muted-tag { color: var(--text-tertiary); font-size: 12px; }
+
+.rule-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.logs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 720px) {
+  .logs-grid { grid-template-columns: 1fr; }
+}
+
+.log-item {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  align-items: baseline;
+}
+
+.log-item.offline .log-msg { color: var(--status-red); }
+
+.log-time {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.log-msg {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
 
 .pass-form {
   display: flex;
