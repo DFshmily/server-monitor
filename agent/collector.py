@@ -23,6 +23,10 @@ _cert_cache: dict = {}
 # 每台服务器独立配置(环境变量), 规则阈值可在面板按服务器定制.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
 
+# 虚拟网卡不计入流量统计: docker 桥接/veth/隧道会把同一份流量重复计数,
+# 云厂商计费只认物理网卡。前缀匹配, lo 恒排除。
+VIRTUAL_IFACE_PREFIXES = ("docker", "veth", "br-", "virbr", "tun", "tap", "wg", "tailscale", "kube")
+
 
 def _month_key() -> str:
     """自然月标识, 按北京时间(UTC+8)结算, 北京 0 点跨月重置."""
@@ -144,9 +148,15 @@ def get_network_metrics() -> dict:
     """Network I/O per interface + connections + rates + persistent totals."""
     global _prev_net_io, _prev_net_time
     io = psutil.net_io_counters(pernic=True)
+
+    def is_counted(name: str) -> bool:
+        if name == 'lo':
+            return False
+        return not name.startswith(VIRTUAL_IFACE_PREFIXES)
+
     interfaces = {}
     for name, counters in io.items():
-        if name == 'lo':
+        if not is_counted(name):
             continue
         interfaces[name] = {
             "bytes_sent": counters.bytes_sent,
