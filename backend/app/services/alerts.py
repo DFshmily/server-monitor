@@ -68,9 +68,13 @@ def _extract_metric(data: dict, metric: str):
                 return None, None
             return round(total / (1024 ** 3), 2), "GB"
         if metric == "traffic_used_percent":
+            tm = data.get("traffic_month") or {}
+            # 优先用 agent 按本机配额算好的百分比(每服务器可独立配置配额)
+            if tm.get("used_percent") is not None:
+                return tm.get("used_percent"), "%"
+            # 回退: 后端全局配额(旧配置兼容)
             if TRAFFIC_QUOTA_GB <= 0:
                 return None, None
-            tm = data.get("traffic_month") or {}
             total = tm.get("total_bytes", 0)
             if not total:
                 return None, None

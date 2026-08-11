@@ -19,6 +19,17 @@ TRAFFIC_STATE_FILE = os.environ.get(
 CERT_REFRESH_SECONDS = 6 * 3600  # refresh every 6h
 _cert_cache: dict = {}
 
+# Monthly traffic quota (GiB) for THIS server; 0/absent = 不监控额度百分比.
+# 每台服务器独立配置(环境变量), 规则阈值可在面板按服务器定制.
+TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
+
+
+def _month_key() -> str:
+    """自然月标识, 按北京时间(UTC+8)结算, 北京 0 点跨月重置."""
+    import datetime
+    bj = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
+    return bj.strftime("%Y-%m")
+
 
 def _load_traffic_state() -> dict:
     """Load persisted traffic totals; return empty state if missing/corrupt."""
@@ -187,7 +198,7 @@ def get_network_metrics() -> dict:
             "base_sent": current_sent,
             "lifetime_recv": max(state.get("lifetime_recv", 0), current_recv),
             "lifetime_sent": max(state.get("lifetime_sent", 0), current_sent),
-            "month": state.get("month", time.strftime("%Y-%m")),
+            "month": state.get("month", _month_key()),
             "month_recv": state.get("month_recv", 0),
             "month_sent": state.get("month_sent", 0),
             "month_base_recv": state.get("month_base_recv", current_recv),
@@ -203,8 +214,8 @@ def get_network_metrics() -> dict:
     lifetime_recv = state.get("lifetime_recv", 0) + delta_recv
     lifetime_sent = state.get("lifetime_sent", 0) + delta_sent
 
-    # ── 月度流量累计（跨月自动重置，跨重启保留）──
-    month = time.strftime("%Y-%m")
+    # ── 月度流量累计（北京时间自然月，跨月自动重置，跨重启保留）──
+    month = _month_key()
     if state.get("month") != month:
         state["month"] = month
         state["month_recv"] = 0
@@ -254,6 +265,8 @@ def get_network_metrics() -> dict:
             "recv_bytes": month_recv,
             "sent_bytes": month_sent,
             "total_bytes": month_recv + month_sent,
+            "quota_gb": TRAFFIC_QUOTA_GB,
+            "used_percent": round((month_recv + month_sent) / (1024 ** 3) / TRAFFIC_QUOTA_GB * 100, 2) if TRAFFIC_QUOTA_GB > 0 else None,
         },
     }
 
