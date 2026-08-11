@@ -57,8 +57,10 @@ const intervals = [
 
 // Custom date range helpers
 const todayStr = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // Force Beijing time (UTC+8)
+  const d = new Date(Date.now() + 8 * 3600 * 1000)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`
 }
 
 const applyCustomRange = () => {
@@ -189,9 +191,11 @@ const exportCSV = () => {
     return
   }
   const fmt = (ts) => {
-    const d = new Date(ts > 1e12 ? ts : ts * 1000)
+    // Force Beijing time (UTC+8)
+    const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
+    const d = new Date(ms)
     const p = (n) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
   }
   const diskOf = (dd) => {
     const parts = dd?.partitions

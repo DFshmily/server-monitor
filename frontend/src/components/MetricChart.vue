@@ -25,10 +25,11 @@ let chart = null
 
 const formatTime = (ts) => {
   if (!ts) return ''
-  // Handle both unix seconds and milliseconds
-  const ms = ts > 1e12 ? ts : ts * 1000
+  // Handle both unix seconds and milliseconds; force Beijing time (UTC+8)
+  const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
   const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
 }
 
 const buildOption = () => {

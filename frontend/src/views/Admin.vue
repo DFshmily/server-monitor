@@ -91,7 +91,11 @@ async function deleteRule(r) {
 }
 const formatTs = (ts) => {
   if (!ts) return '-'
-  return new Date(ts * 1000).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+  // Force Beijing time (UTC+8)
+  const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
 }
 const ruleServerLabel = (sn) => sn === '*' ? '全部服务器' : sn
 
@@ -238,7 +242,11 @@ async function changePassword() {
 
 function formatTime(ts) {
   if (!ts) return '-'
-  return new Date(ts * 1000).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+  // Force Beijing time (UTC+8)
+  const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
 }
 
 onMounted(async () => {
