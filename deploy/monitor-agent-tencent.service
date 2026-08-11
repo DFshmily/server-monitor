@@ -10,6 +10,7 @@ Environment=MONITOR_BACKEND_URL=https://dashboard.dfshmily.icu
 Environment=MONITOR_INTERVAL=2
 Environment=MONITOR_SERVER_NAME=tencent
 Environment=MONITOR_API_KEY=monitor-secret-key-2026
+Environment=MONITOR_CERT_DOMAINS=dashboard.dfshmily.icu,dfshmily.icu
 ExecStart=/home/ubuntu/server-monitor/agent/venv/bin/python main.py
 Restart=always
 RestartSec=5

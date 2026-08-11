@@ -3,6 +3,7 @@ import os
 import json
 import time
 import socket
+import ssl
 import psutil
 
 # Network rate tracking state
@@ -13,6 +14,10 @@ _prev_net_time = 0.0
 TRAFFIC_STATE_FILE = os.environ.get(
     "MONITOR_TRAFFIC_STATE", "/var/lib/server-monitor/traffic_state.json"
 )
+
+# TLS cert check cache: don't handshake on every 2s collection
+CERT_REFRESH_SECONDS = 6 * 3600  # refresh every 6h
+_cert_cache: dict = {}
 
 
 def _load_traffic_state() -> dict:
@@ -175,13 +180,18 @@ def get_network_metrics() -> dict:
     state = _load_traffic_state()
     if state.get("boot_time") != boot_time:
         # 首次运行或系统重启：lifetime 以当前计数器为起点（保证 >= 本机流量），
-        # 重启时保留旧 lifetime 值
+        # 重启时保留旧 lifetime 值；月度流量同样跨重启保留
         state = {
             "boot_time": boot_time,
             "base_recv": current_recv,
             "base_sent": current_sent,
             "lifetime_recv": max(state.get("lifetime_recv", 0), current_recv),
             "lifetime_sent": max(state.get("lifetime_sent", 0), current_sent),
+            "month": state.get("month", time.strftime("%Y-%m")),
+            "month_recv": state.get("month_recv", 0),
+            "month_sent": state.get("month_sent", 0),
+            "month_base_recv": state.get("month_base_recv", current_recv),
+            "month_base_sent": state.get("month_base_sent", current_sent),
         }
         delta_recv = 0
         delta_sent = 0
@@ -193,11 +203,28 @@ def get_network_metrics() -> dict:
     lifetime_recv = state.get("lifetime_recv", 0) + delta_recv
     lifetime_sent = state.get("lifetime_sent", 0) + delta_sent
 
+    # ── 月度流量累计（跨月自动重置，跨重启保留）──
+    month = time.strftime("%Y-%m")
+    if state.get("month") != month:
+        state["month"] = month
+        state["month_recv"] = 0
+        state["month_sent"] = 0
+        state["month_base_recv"] = current_recv
+        state["month_base_sent"] = current_sent
+    month_delta_recv = max(0, current_recv - state.get("month_base_recv", current_recv))
+    month_delta_sent = max(0, current_sent - state.get("month_base_sent", current_sent))
+    month_recv = state.get("month_recv", 0) + month_delta_recv
+    month_sent = state.get("month_sent", 0) + month_delta_sent
+
     # Rebase so the next delta is measured from the current counter
     state["base_recv"] = current_recv
     state["base_sent"] = current_sent
     state["lifetime_recv"] = lifetime_recv
     state["lifetime_sent"] = lifetime_sent
+    state["month_base_recv"] = current_recv
+    state["month_base_sent"] = current_sent
+    state["month_recv"] = month_recv
+    state["month_sent"] = month_sent
     _save_traffic_state(state)
 
     # Current boot session totals (raw system counters, reset on reboot)
@@ -222,7 +249,59 @@ def get_network_metrics() -> dict:
         "lifetime_bytes_sent": lifetime_sent,
         "tcp_states": tcp_states,
         "total_connections": len(connections),
+        "traffic_month": {
+            "month": month,
+            "recv_bytes": month_recv,
+            "sent_bytes": month_sent,
+            "total_bytes": month_recv + month_sent,
+        },
     }
+
+
+def _check_cert(domain: str) -> dict | None:
+    """TLS handshake against domain:443, return cert expiry info (or None on error)."""
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with ctx.wrap_socket(sock, server_hostname=domain) as tls:
+                raw_cert = tls.getpeercert()
+        cert: dict = raw_cert if isinstance(raw_cert, dict) else {}
+        not_after = ssl.cert_time_to_seconds(cert["notAfter"])
+        issuer = dict(x[0] for x in cert.get("issuer", [])).get("organizationName", "")
+        subject = dict(x[0] for x in cert.get("subject", [])).get("commonName", domain)
+        return {
+            "days_left": int((not_after - time.time()) / 86400),
+            "expires_at": int(not_after),
+            "issuer": issuer,
+            "subject": subject,
+        }
+    except Exception as e:
+        return {"days_left": None, "error": str(e)[:100]}
+
+
+def get_certificates_metrics() -> dict:
+    """TLS certificate expiry for MONITOR_CERT_DOMAINS (comma-separated).
+
+    Refreshed at most every CERT_REFRESH_SECONDS to avoid handshaking on
+    every 2s collection; failures keep the previous cached result.
+    """
+    raw = os.environ.get("MONITOR_CERT_DOMAINS", "")
+    domains = [d.strip().lower() for d in raw.split(",") if d.strip()]
+    if not domains:
+        return {}
+    now = time.time()
+    out = {}
+    for domain in domains:
+        cache = _cert_cache.get(domain)
+        if cache and now - cache[0] < CERT_REFRESH_SECONDS:
+            if cache[1] is not None:
+                out[domain] = cache[1]
+            continue
+        result = _check_cert(domain)
+        _cert_cache[domain] = (now, result)
+        if result is not None:
+            out[domain] = result
+    return out
 
 
 def get_load_metrics() -> dict:
@@ -371,18 +450,21 @@ def get_services_metrics() -> dict:
 
 def collect_all() -> dict:
     """Collect all metrics and return as a single dict."""
+    net = get_network_metrics()
     return {
         "timestamp": int(time.time()),
         "hostname": socket.gethostname(),
         "cpu": get_cpu_metrics(),
         "memory": get_memory_metrics(),
         "disk": get_disk_metrics(),
-        "network": get_network_metrics(),
+        "network": net,
+        "traffic_month": net.get("traffic_month", {}),
         "load": get_load_metrics(),
         "processes": get_process_metrics(top_n=10),
         "system": get_system_metrics(),
         "docker": get_docker_metrics(),
         "services": get_services_metrics(),
+        "certificates": get_certificates_metrics(),
     }
 
 

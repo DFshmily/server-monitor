@@ -6,10 +6,15 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.api.auth import require_admin
+from app.services.alerts import _notify
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
-VALID_METRICS = {"cpu", "memory", "disk", "load1", "load5", "load15", "net_in", "net_out"}
+VALID_METRICS = {
+    "cpu", "memory", "disk", "load1", "load5", "load15",
+    "net_in", "net_out",
+    "cert_days", "traffic_month_total_gb", "traffic_used_percent",
+}
 VALID_OPS = {">", ">=", "<", "<="}
 
 
@@ -97,6 +102,46 @@ async def list_events(limit: int = 50):
         "SELECT * FROM alert_events ORDER BY id DESC LIMIT ?", (min(max(limit, 1), 200),)
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+@router.get("/stats", dependencies=[Depends(require_admin)])
+async def alert_stats(days: int = 14):
+    """Alert events per day (Beijing time) for the last N days, by kind."""
+    db = await get_db()
+    cur = await db.execute(
+        """
+        SELECT
+            strftime('%m-%d', created_at, 'unixepoch', '+8 hours') AS date,
+            kind,
+            COUNT(*) AS n
+        FROM alert_events
+        WHERE created_at >= ?
+        GROUP BY date, kind
+        ORDER BY date
+        """,
+        (int(time.time()) - days * 86400,),
+    )
+    rows = await cur.fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        d = out.setdefault(r["date"], {"date": r["date"], "threshold": 0, "offline": 0, "recovered": 0})
+        kind = r["kind"]
+        if kind in d:
+            d[kind] += r["n"]
+    return [out[k] for k in sorted(out)]
+
+
+@router.post("/test", dependencies=[Depends(require_admin)])
+async def test_notify(admin: dict = Depends(require_admin)):
+    """Send a test message to every configured notification channel."""
+    results = await _notify(
+        f"🧪 监控通知测试\n来自 {admin['email']} · {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"如果你收到这条消息，说明通知渠道配置正常 ✅"
+    )
+    if not results:
+        return {"ok": True, "sent": [], "message": "未配置任何通知渠道（Telegram/Bark）"}
+    failed = [k for k, ok in results.items() if not ok]
+    return {"ok": True, "sent": list(results.keys()), "failed": failed}
 
 
 @router.get("/audit", dependencies=[Depends(require_admin)])

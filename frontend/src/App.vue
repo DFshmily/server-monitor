@@ -1,12 +1,23 @@
 <script setup>
 import { RouterView, useRouter } from 'vue-router'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from './stores/auth'
+import { useServersStore } from './stores/servers'
+import { storeToRefs } from 'pinia'
 
 const router = useRouter()
 const auth = useAuthStore()
+const store = useServersStore()
+const { kioskMode } = storeToRefs(store)
 const showMenu = ref(false)
 const isDark = ref(false)
+
+// 用户按 Esc 退出全屏时，同步退出大屏模式
+function onFullscreenChange() {
+  if (!document.fullscreenElement && kioskMode.value) {
+    store.exitKioskMode()
+  }
+}
 
 // 主题：localStorage 优先，其次跟随系统
 const applyTheme = (dark) => {
@@ -30,6 +41,11 @@ onMounted(() => {
   } else {
     applyTheme(false)
   }
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 
 function go(path) {
@@ -45,12 +61,13 @@ function handleLogout() {
 </script>
 
 <template>
-  <div class="app-container">
-    <nav v-if="!$route.meta.guestOnly" class="top-nav">
+  <div class="app-container" :class="{ 'kiosk-active': kioskMode }">
+    <nav v-if="!$route.meta.guestOnly && !kioskMode" class="top-nav">
       <div class="nav-inner">
         <div class="nav-links">
-          <span class="nav-link" @click="go('/')">首页</span>
-          <span v-if="auth.isAdmin()" class="nav-link" @click="go('/admin')">管理</span>
+          <span class="nav-link" :class="{ active: $route.path === '/' }" @click="go('/')">首页</span>
+          <span v-if="auth.isLoggedIn()" class="nav-link" :class="{ active: $route.path === '/compare' }" @click="go('/compare')">对比</span>
+          <span v-if="auth.isAdmin()" class="nav-link" :class="{ active: $route.path === '/admin' }" @click="go('/admin')">管理</span>
         </div>
         <div class="nav-user">
           <button class="theme-toggle" :title="isDark ? '切换到浅色' : '切换到深色'" @click="toggleTheme">
@@ -114,6 +131,20 @@ function handleLogout() {
 
 .nav-link:hover {
   color: var(--purple-600, #7c3aed);
+}
+
+.nav-link.active {
+  color: var(--purple-600, #7c3aed);
+}
+
+/* 大屏模式：铺满全屏、隐藏滚动条 */
+.kiosk-active {
+  overflow: hidden;
+}
+
+.kiosk-active .page-container {
+  max-width: none;
+  padding: 24px 40px;
 }
 
 .nav-user {

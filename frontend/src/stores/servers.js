@@ -4,8 +4,13 @@ import { ref, computed } from 'vue'
 export const useServersStore = defineStore('servers', () => {
   const servers = ref({})
   const connected = ref(false)
+  const kioskMode = ref(false)
   let ws = null
   let reconnectTimer = null
+  let heartbeatTimer = null
+  let reconnectAttempts = 0
+  const MAX_RECONNECT_DELAY = 30000   // cap at 30s
+  const HEARTBEAT_INTERVAL = 25000    // ping every 25s
 
   const serverList = computed(() => {
     return Object.values(servers.value)
@@ -110,7 +115,15 @@ export const useServersStore = defineStore('servers', () => {
 
     ws.onopen = () => {
       connected.value = true
+      reconnectAttempts = 0
       console.log('WebSocket connected')
+      // Heartbeat: keep the connection alive through proxies/NAT
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send('ping')
+        }
+      }, HEARTBEAT_INTERVAL)
     }
 
     ws.onmessage = (event) => {
@@ -131,29 +144,61 @@ export const useServersStore = defineStore('servers', () => {
 
     ws.onclose = () => {
       connected.value = false
+      clearInterval(heartbeatTimer)
       console.log('WebSocket disconnected, reconnecting...')
-      clearTimeout(reconnectTimer)
-      reconnectTimer = setTimeout(connectWebSocket, 3000)
+      scheduleReconnect()
     }
 
     ws.onerror = (err) => {
       console.error('WebSocket error:', err)
-      ws.close()
+      ws?.close()
     }
+  }
+
+  // Exponential backoff: 3s → 6s → 12s → 24s → capped at 30s
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer)
+    const delay = Math.min(3000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY)
+    reconnectAttempts += 1
+    reconnectTimer = setTimeout(() => {
+      // Guard: if a connection attempt is already in flight, skip
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
+      connectWebSocket()
+    }, delay)
   }
 
   function disconnectWebSocket() {
     clearTimeout(reconnectTimer)
+    clearInterval(heartbeatTimer)
     if (ws) {
+      ws.onclose = null // suppress auto-reconnect during manual teardown
       ws.close()
       ws = null
     }
     connected.value = false
   }
 
+  function enterKioskMode() {
+    kioskMode.value = true
+    document.documentElement.requestFullscreen?.().catch(() => {})
+  }
+
+  function exitKioskMode() {
+    kioskMode.value = false
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {})
+    }
+  }
+
+  function toggleKioskMode() {
+    if (kioskMode.value) exitKioskMode()
+    else enterKioskMode()
+  }
+
   return {
     servers,
     connected,
+    kioskMode,
     serverList,
     getServer,
     fetchServers,
@@ -161,6 +206,9 @@ export const useServersStore = defineStore('servers', () => {
     fetchHistory,
     saveAlias,
     connectWebSocket,
-    disconnectWebSocket
+    disconnectWebSocket,
+    enterKioskMode,
+    exitKioskMode,
+    toggleKioskMode
   }
 })

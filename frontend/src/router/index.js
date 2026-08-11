@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/compare',
+      name: 'server-compare',
+      component: () => import('../views/Compare.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/map',
       name: 'server-map',
       component: () => import('../views/MapPage.vue')

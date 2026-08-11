@@ -1,11 +1,18 @@
-"""Alert engine: threshold rules, offline detection, Telegram push."""
+"""Alert engine: threshold rules, offline detection, Telegram/Bark push."""
 import json
 import logging
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 
-from app.core.config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+from app.core.config import (
+    TELEGRAM_TOKEN,
+    TELEGRAM_CHAT_ID,
+    BARK_KEY,
+    BARK_GROUP,
+    TRAFFIC_QUOTA_GB,
+)
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -15,6 +22,7 @@ CHECK_INTERVAL = 15          # seconds between alert sweeps
 COOLDOWN_SECONDS = 1800      # don't re-alert same rule+server for 30 min
 OFFLINE_AFTER_SECONDS = 90   # no data for 90s => server offline
 OFFLINE_COOLDOWN_SECONDS = 600
+RECOVERY_WINDOW = 6 * 3600   # only send "recovered" if it fired within 6h
 
 # Metric path -> (extractor fn, unit label)
 def _extract_metric(data: dict, metric: str):
@@ -46,9 +54,43 @@ def _extract_metric(data: dict, metric: str):
             if "bytes_sent_rate" in nd:
                 return nd.get("bytes_sent_rate"), "B/s"
             return None, None
+        if metric == "cert_days":
+            # certificates: {domain: {days_left, issuer, ...}} -> min days
+            certs = data.get("certificates") or {}
+            days = [c.get("days_left") for c in certs.values() if c.get("days_left") is not None]
+            if not days:
+                return None, None
+            return min(days), "天"
+        if metric == "traffic_month_total_gb":
+            tm = data.get("traffic_month") or {}
+            total = tm.get("total_bytes", 0)
+            if not total:
+                return None, None
+            return round(total / (1024 ** 3), 2), "GB"
+        if metric == "traffic_used_percent":
+            if TRAFFIC_QUOTA_GB <= 0:
+                return None, None
+            tm = data.get("traffic_month") or {}
+            total = tm.get("total_bytes", 0)
+            if not total:
+                return None, None
+            return round(total / (1024 ** 3) / TRAFFIC_QUOTA_GB * 100, 2), "%"
     except Exception:
         return None, None
     return None, None
+
+
+def _cert_weakest(data: dict):
+    """Return (domain, days_left) of the certificate expiring soonest, or None."""
+    certs = data.get("certificates") or {}
+    best = None
+    for domain, c in certs.items():
+        dl = c.get("days_left")
+        if dl is None:
+            continue
+        if best is None or dl < best[1]:
+            best = (domain, dl)
+    return best
 
 
 def _compare(value: float, op: str, threshold: float) -> bool:
@@ -88,13 +130,71 @@ async def _send_telegram(text: str) -> bool:
         return False
 
 
-async def _recent_event(server: str, metric: str, kind: str, within: int) -> bool:
-    """True if a same-kind event exists for this server+metric within `within` seconds."""
+async def _send_bark(text: str) -> bool:
+    """Push to Bark (iOS). Uses the official push endpoint; falls back to GET."""
+    if not BARK_KEY:
+        return False
+    # Split title/body on the first '：' or ':' so the notification headline is short
+    title, _, body = text.partition("：")
+    if not body:
+        title, _, body = text.partition(":")
+    title = (title or "监控告警")[:30]
+    payload = {
+        "device_key": BARK_KEY,
+        "title": title,
+        "body": text[:2000],
+        "level": "timeSensitive",
+        "icon": "https://dashboard.dfshmily.icu/favicon.ico",
+    }
+    if BARK_GROUP:
+        payload["group"] = BARK_GROUP
+    try:
+        req = urllib.request.Request(
+            "https://api.day.app/push",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            code = resp.status
+            try:
+                rj = json.loads(resp.read().decode() or "{}")
+                if rj.get("code") not in (None, 200):
+                    logger.warning("Bark push rejected: %s", rj)
+                    return False
+            except Exception:
+                pass
+            return code == 200
+    except Exception as e:
+        logger.warning("Bark push failed: %s", e)
+        return False
+
+
+async def _notify(text: str) -> dict:
+    """Send to every configured channel. Returns {channel: ok}."""
+    results = {}
+    if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        results["telegram"] = await _send_telegram(text)
+    if BARK_KEY:
+        results["bark"] = await _send_bark(text)
+    if not results:
+        logger.info("No notification channel configured, alert not pushed: %s", text[:80])
+    return results
+
+
+async def _recent_event(server: str, metric: str, kind: str, within: int, rule_id: int | None = None) -> bool:
+    """True if a same-kind event exists for this server+metric within `within` seconds.
+
+    When rule_id is given, only events of that rule count (recovery must pair
+    with the exact rule that fired, not any rule on the same metric).
+    """
     db = await get_db()
-    cur = await db.execute(
-        "SELECT id FROM alert_events WHERE server_name = ? AND metric = ? AND kind = ? AND created_at > ? LIMIT 1",
-        (server, metric, kind, int(time.time()) - within),
-    )
+    sql = "SELECT id FROM alert_events WHERE server_name = ? AND metric = ? AND kind = ? AND created_at > ?"
+    params: list = [server, metric, kind, int(time.time()) - within]
+    if rule_id is not None:
+        sql += " AND rule_id = ?"
+        params.append(rule_id)
+    sql += " LIMIT 1"
+    cur = await db.execute(sql, params)
     return await cur.fetchone() is not None
 
 
@@ -141,17 +241,35 @@ async def check_threshold_rules() -> None:
             value, unit = _extract_metric(data, rule["metric"])
             if value is None:
                 continue
+            now = int(time.time())
             if _compare(value, rule["operator"], rule["threshold"]):
                 if await _recent_event(server, rule["metric"], "threshold", COOLDOWN_SECONDS):
                     continue
+                # Cert alert message: name the weakest domain
+                extra = ""
+                if rule["metric"] == "cert_days":
+                    weakest = _cert_weakest(data)
+                    if weakest:
+                        extra = f"（最先到期: {weakest[0]}，剩 {weakest[1]} 天）"
                 msg = (f"🚨 告警 [{server}] {rule['metric']} {rule['operator']} {rule['threshold']}{unit}，"
-                       f"当前 {value:.2f}{unit}")
+                       f"当前 {value:.2f}{unit}{extra}")
                 await _record_event(rule["id"], server, rule["metric"], value, msg, "threshold")
-                await _send_telegram(msg)
+                await _notify(msg)
+            else:
+                # ── Recovery: condition cleared after this exact rule fired recently ──
+                fired = await _recent_event(server, rule["metric"], "threshold", RECOVERY_WINDOW, rule_id=rule["id"])
+                if not fired:
+                    continue
+                if await _recent_event(server, rule["metric"], "recovered", RECOVERY_WINDOW, rule_id=rule["id"]):
+                    continue
+                msg = (f"✅ 已恢复 [{server}] {rule['metric']}："
+                       f"{value:.2f}{unit}，不再满足 {rule['operator']} {rule['threshold']}{unit}")
+                await _record_event(rule["id"], server, rule["metric"], value, msg, "recovered")
+                await _notify(msg)
 
 
 async def check_offline() -> None:
-    """Detect servers that stopped reporting (heartbeat timeout)."""
+    """Detect servers that stopped reporting (heartbeat timeout) + recovery."""
     db = await get_db()
     now = int(time.time())
     cur = await db.execute(
@@ -159,13 +277,22 @@ async def check_offline() -> None:
     )
     for row in await cur.fetchall():
         server, ts = row["server_name"], row["ts"]
-        if now - ts <= OFFLINE_AFTER_SECONDS:
-            continue
-        if await _recent_event(server, "heartbeat", "offline", OFFLINE_COOLDOWN_SECONDS):
-            continue
-        msg = f"⚠️ 服务器离线 [{server}]：已 {now - ts} 秒无数据上报，可能宕机或网络中断"
-        await _record_event(None, server, "heartbeat", float(now - ts), msg, "offline")
-        await _send_telegram(msg)
+        if now - ts > OFFLINE_AFTER_SECONDS:
+            if await _recent_event(server, "heartbeat", "offline", OFFLINE_COOLDOWN_SECONDS):
+                continue
+            msg = f"⚠️ 服务器离线 [{server}]：已 {now - ts} 秒无数据上报，可能宕机或网络中断"
+            await _record_event(None, server, "heartbeat", float(now - ts), msg, "offline")
+            await _notify(msg)
+        else:
+            # ── Offline recovery: server reporting again after an offline event ──
+            was_offline = await _recent_event(server, "heartbeat", "offline", RECOVERY_WINDOW)
+            if not was_offline:
+                continue
+            if await _recent_event(server, "heartbeat", "recovered", RECOVERY_WINDOW):
+                continue
+            msg = f"✅ 服务器已恢复上线 [{server}]：数据恢复正常上报"
+            await _record_event(None, server, "heartbeat", 0.0, msg, "recovered")
+            await _notify(msg)
 
 
 async def alert_loop() -> None:

@@ -107,6 +107,10 @@ async def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(created_at);
     """)
+    # ── Migrations (idempotent ALTERs for schema evolution) ──
+    cols = [r["name"] for r in await (await db.execute("PRAGMA table_info(login_attempts)")).fetchall()]
+    if "ip" not in cols:
+        await db.execute("ALTER TABLE login_attempts ADD COLUMN ip TEXT")
     await db.commit()
 
 

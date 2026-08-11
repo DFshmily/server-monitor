@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import AlertStatsChart from '../components/AlertStatsChart.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -40,9 +41,33 @@ const METRIC_OPTIONS = [
   { value: 'load5', label: '负载 5 分钟' },
   { value: 'load15', label: '负载 15 分钟' },
   { value: 'net_in', label: '网络入速率 B/s' },
-  { value: 'net_out', label: '网络出速率 B/s' }
+  { value: 'net_out', label: '网络出速率 B/s' },
+  { value: 'cert_days', label: 'SSL 证书剩余天数' },
+  { value: 'traffic_month_total_gb', label: '本月流量合计 GB' },
+  { value: 'traffic_used_percent', label: '本月流量额度使用 %' }
 ]
 const OP_OPTIONS = ['>', '>=', '<', '<=']
+const testNotifying = ref(false)
+const testResult = ref('')
+
+async function testNotify() {
+  testNotifying.value = true
+  testResult.value = ''
+  error.value = ''
+  try {
+    const res = await api('/api/alerts/test', { method: 'POST' })
+    if (res.sent && res.sent.length > 0) {
+      const parts = res.sent.map(c => c === 'telegram' ? 'Telegram' : 'Bark')
+      testResult.value = `✅ 已发送到 ${parts.join(' + ')}${res.failed?.length ? `（失败: ${res.failed.join(', ')}）` : ''}`
+    } else {
+      testResult.value = res.message || '未配置通知渠道'
+    }
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    testNotifying.value = false
+  }
+}
 
 async function loadRules() {
   try {
@@ -420,8 +445,14 @@ onMounted(async () => {
     <div class="glass-card section">
       <div class="section-head">
         <h3>🚨 告警规则</h3>
-        <span class="subtitle">触发后推送到 Telegram（每规则 30 分钟冷却）</span>
+        <div class="btn-group">
+          <span v-if="testResult" class="test-result">{{ testResult }}</span>
+          <button class="btn-secondary" :disabled="testNotifying" @click="testNotify">
+            {{ testNotifying ? '发送中...' : '📨 通知测试' }}
+          </button>
+        </div>
       </div>
+      <div class="section-hint">触发后推送到 Telegram / Bark，恢复后自动推送「已恢复」（每规则 30 分钟冷却）</div>
       <div class="rule-form">
         <select v-model="ruleForm.server_name" class="count-input">
           <option value="*">全部服务器</option>
@@ -456,6 +487,14 @@ onMounted(async () => {
         </div>
         <div v-if="rules.length === 0" class="user-row"><span class="muted-tag">还没有告警规则</span></div>
       </div>
+    </div>
+
+    <!-- 告警统计 + 事件/审计 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>📊 告警统计</h3>
+      </div>
+      <AlertStatsChart :days="14" />
     </div>
 
     <!-- 告警事件 + 审计日志 -->
@@ -568,6 +607,13 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-tertiary);
   margin: -4px 0 12px;
+}
+
+.test-result {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--status-green, #34c759);
+  margin-right: 4px;
 }
 
 .manual-row {

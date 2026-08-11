@@ -19,6 +19,16 @@ JWT_EXPIRE_SECONDS = int(os.environ.get("MONITOR_JWT_EXPIRE", "86400"))  # 24h d
 TELEGRAM_TOKEN = os.environ.get("MONITOR_TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("MONITOR_TELEGRAM_CHAT_ID", "")
 
+# Alerts: Bark push (iOS). Key = the 30-char device key from the Bark app
+# (https://api.day.app/XXXX...). Optional; when set, alerts also go to Bark.
+BARK_KEY = os.environ.get("MONITOR_BARK_KEY", "")
+BARK_GROUP = os.environ.get("MONITOR_BARK_GROUP", "")      # optional push group
+BARK_DEVICE = os.environ.get("MONITOR_BARK_DEVICE", "")    # optional device token (rarely needed)
+
+# Monthly traffic quota for traffic_used_percent alerts (GiB per server).
+# Oracle free tier e.g. 10 TiB outbound = 10240 GiB. 0 = disable quota check.
+TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
+
 # SMTP for email verification codes
 SMTP_HOST = os.environ.get("MONITOR_SMTP_HOST", "smtp.qq.com")
 SMTP_PORT = int(os.environ.get("MONITOR_SMTP_PORT", "465"))

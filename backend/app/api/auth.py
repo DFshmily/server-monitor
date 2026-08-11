@@ -2,7 +2,7 @@
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.database import get_db
@@ -207,12 +207,17 @@ async def register(req: RegisterRequest):
 
 
 @router.post("/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
     db = await get_db()
     email = req.email.lower()
     now = int(time.time())
 
-    # ── Brute-force protection: 5 failed attempts => 15 min lockout ──
+    # Client IP: Cloudflare sets CF-Connecting-IP; fall back to socket peer.
+    ip = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not ip or ip == "unknown":
+        ip = request.client.host if request.client else ""
+
+    # ── Brute-force protection: 5 failed attempts per email => 15 min lockout ──
     cur = await db.execute(
         "SELECT COUNT(*) as n, MAX(created_at) as last FROM login_attempts WHERE email = ? AND success = 0 AND created_at > ?",
         (email, now - 900),
@@ -222,12 +227,24 @@ async def login(req: LoginRequest):
         wait = 900 - (now - row["last"])
         raise HTTPException(status_code=429, detail=f"尝试次数过多，请 {max(wait, 1)} 秒后再试")
 
+    # ── Brute-force protection: 10 failed attempts per IP => 15 min lockout ──
+    # Catches password spraying across many accounts from one address.
+    if ip:
+        cur = await db.execute(
+            "SELECT COUNT(*) as n, MAX(created_at) as last FROM login_attempts WHERE ip = ? AND success = 0 AND created_at > ?",
+            (ip, now - 900),
+        )
+        prow = await cur.fetchone()
+        if prow and prow["n"] >= 10:
+            wait = 900 - (now - prow["last"])
+            raise HTTPException(status_code=429, detail=f"该网络地址尝试过多，请 {max(wait, 1)} 秒后再试")
+
     cur = await db.execute("SELECT * FROM users WHERE email = ?", (email,))
     row = await cur.fetchone()
     ok = bool(row and verify_password(req.password, row["password_hash"]))
     await db.execute(
-        "INSERT INTO login_attempts (email, success, created_at) VALUES (?, ?, ?)",
-        (email, int(ok), now),
+        "INSERT INTO login_attempts (email, success, created_at, ip) VALUES (?, ?, ?, ?)",
+        (email, int(ok), now, ip),
     )
     await db.commit()
 

@@ -7,9 +7,43 @@ import ServerCard from '../components/ServerCard.vue'
 import FloatingGlobe from '../components/FloatingGlobe.vue'
 
 const store = useServersStore()
-const { serverList, connected } = storeToRefs(store)
+const { serverList, connected, kioskMode } = storeToRefs(store)
 const containerRef = ref(null)
 const titleRef = ref(null)
+const focusIndex = ref(0)
+let rotateTimer = null
+
+// 大屏模式：全屏 + 卡片自动轮播聚焦
+function enterKiosk() {
+  store.enterKioskMode()
+  focusIndex.value = 0
+  startRotation()
+}
+
+function exitKiosk() {
+  store.exitKioskMode()
+  stopRotation()
+}
+
+function startRotation() {
+  stopRotation()
+  if (serverList.value.length <= 1) return
+  rotateTimer = setInterval(() => {
+    focusIndex.value = (focusIndex.value + 1) % serverList.value.length
+    const cards = containerRef.value?.querySelectorAll('.server-card')
+    const target = cards?.[focusIndex.value]
+    if (target) {
+      gsap.fromTo(target, { opacity: 0.4, scale: 0.98 }, { opacity: 1, scale: 1.02, duration: 0.8, ease: 'power2.out' })
+    }
+  }, 8000)
+}
+
+function stopRotation() {
+  if (rotateTimer) {
+    clearInterval(rotateTimer)
+    rotateTimer = null
+  }
+}
 
 onMounted(async () => {
   await store.fetchServers()
@@ -34,6 +68,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopRotation()
   store.disconnectWebSocket()
 })
 </script>
@@ -49,6 +84,13 @@ onUnmounted(() => {
         <span class="connection-status" :class="{ online: connected }" title="实时数据推送通道">
           <span class="status-dot"></span>
         </span>
+        <button v-if="!kioskMode" class="kiosk-btn" title="大屏模式（全屏自动轮播）" @click="enterKiosk">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+          </svg>
+          大屏
+        </button>
+        <button v-else class="kiosk-btn active" title="退出大屏模式 (Esc)" @click="exitKiosk">退出大屏</button>
       </div>
     </div>
 
@@ -62,11 +104,12 @@ onUnmounted(() => {
       <p>正在等待服务器数据...</p>
     </div>
 
-    <div v-else ref="containerRef" class="grid-2">
+    <div v-else ref="containerRef" class="grid-2" :class="{ 'kiosk-grid': kioskMode }">
       <ServerCard
-        v-for="server in serverList"
+        v-for="(server, idx) in serverList"
         :key="server.name"
         :server="server"
+        :class="{ 'kiosk-focus': kioskMode && focusIndex === idx, 'kiosk-dim': kioskMode && focusIndex !== idx }"
       />
     </div>
   </div>
@@ -83,6 +126,51 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+/* 大屏模式按钮 */
+.kiosk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 20px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kiosk-btn:hover {
+  border-color: var(--purple-500, #8b5cf6);
+  color: var(--purple-600, #7c3aed);
+}
+
+.kiosk-btn.active {
+  background: var(--purple-600, #7c3aed);
+  border-color: var(--purple-600, #7c3aed);
+  color: #fff;
+}
+
+/* 大屏模式布局：卡片堆叠放大，非聚焦卡片淡化 */
+.kiosk-grid {
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+.kiosk-focus {
+  opacity: 1 !important;
+  transform: scale(1.02);
+  transition: all 0.6s ease;
+}
+
+.kiosk-dim {
+  opacity: 0.35;
+  transform: scale(0.98);
+  transition: all 0.6s ease;
 }
 
 .connection-status {
