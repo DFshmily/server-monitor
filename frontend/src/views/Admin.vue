@@ -331,7 +331,8 @@ function nextLogPage() {
 function fmtUA(ua) {
   if (!ua) return '-'
   const icon = /mobile|iphone|android|ipad/i.test(ua) ? '📱' : '💻'
-  return `${icon} ${ua.slice(0, 60)}${ua.length > 60 ? '…' : ''}`
+  // 不在此截断：桌面端由 CSS text-overflow 省略，手机端由 CSS 换行完整显示
+  return `${icon} ${ua}`
 }
 
 onMounted(async () => {
@@ -624,9 +625,9 @@ onMounted(async () => {
         <div v-for="l in loginLogs" :key="l.id" class="login-row">
           <span class="user-time">{{ formatTs(l.created_at) }}</span>
           <span class="user-email">{{ l.email }}</span>
-          <span class="log-ip">{{ l.ip || '-' }}</span>
-          <span class="log-ua" :title="l.user_agent || ''">{{ fmtUA(l.user_agent) }}</span>
-          <span>
+          <span class="log-ip"><i class="log-label">IP</i>{{ l.ip || '-' }}</span>
+          <span class="log-ua" :title="l.user_agent || ''"><i class="log-label">设备</i>{{ fmtUA(l.user_agent) }}</span>
+          <span class="log-result">
             <span class="login-dot" :class="{ ok: l.success }"></span>
             {{ l.success ? '成功' : '失败' }}
           </span>
@@ -980,6 +981,13 @@ onMounted(async () => {
 .login-row > span:last-child {
   text-align: right;
 }
+.log-label {
+  display: none;
+  font-style: normal;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-right: 6px;
+}
 .log-ip {
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -1011,6 +1019,27 @@ onMounted(async () => {
   align-items: center;
   margin-top: 14px;
   gap: 8px;
+}
+
+/* 手机端：每条记录变卡片，字段逐行完整显示 */
+@media (max-width: 720px) {
+  .login-row {
+    grid-template-columns: 1fr auto;
+    row-gap: 4px;
+    padding: 12px 8px;
+  }
+  .login-row.header { display: none; }
+  .login-row > span:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .login-row > span:nth-child(5) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .login-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .login-row > span:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .login-row > span:nth-child(4) {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    white-space: normal;
+    word-break: break-all;
+  }
+  .log-label { display: inline; }
 }
 
 @media (max-width: 720px) {
