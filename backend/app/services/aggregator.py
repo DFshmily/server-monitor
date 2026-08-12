@@ -95,6 +95,12 @@ async def _aggregate_interval(interval: str, window: int) -> None:
             v = _get_nested(rec, "network", key, default=0)
             return v if isinstance(v, (int, float)) else 0
 
+        # Persistent lifetime counters (monotonic, survive reboots)
+        def get_lifetime(rec, direction):
+            key = "lifetime_bytes_recv" if direction == "recv" else "lifetime_bytes_sent"
+            v = _get_nested(rec, "network", key, default=0)
+            return v if isinstance(v, (int, float)) else 0
+
         disk_percents = [get_disk_percent(rec) for rec in records]
         net_recv_vals = [get_net_total(rec, "recv") for rec in records]
         net_sent_vals = [get_net_total(rec, "sent") for rec in records]
@@ -136,6 +142,8 @@ async def _aggregate_interval(interval: str, window: int) -> None:
                 "total_bytes_sent": int(net_sent_vals[-1]) if net_sent_vals else 0,
                 "bytes_recv_total": int(net_recv_vals[-1]) if net_recv_vals else 0,
                 "bytes_sent_total": int(net_sent_vals[-1]) if net_sent_vals else 0,
+                "lifetime_bytes_recv": int(max(get_lifetime(rec, "recv") for rec in records)) if records else 0,
+                "lifetime_bytes_sent": int(max(get_lifetime(rec, "sent") for rec in records)) if records else 0,
                 "interfaces": _get_nested(records[-1], "network", "interfaces", default={}) if records else {},
             },
             "load": {

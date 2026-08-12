@@ -7,6 +7,7 @@ import gsap from 'gsap'
 import MetricChart from '../components/MetricChart.vue'
 import ProcessTable from '../components/ProcessTable.vue'
 import ServiceStatus from '../components/ServiceStatus.vue'
+import TrafficDailyChart from '../components/TrafficDailyChart.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +99,20 @@ const formatBytes = (bytes) => {
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
 }
+
+// 本月流量汇总 (agent 采集, 每机独立配额/时区)
+const monthTraffic = computed(() => latest.value.traffic_month || {})
+const monthUsed = computed(() => monthTraffic.value.total_bytes || 0)
+const monthQuotaGB = computed(() => monthTraffic.value.quota_gb || 0)
+const monthUsedPct = computed(() => monthTraffic.value.used_percent ?? null)
+const monthPctClass = computed(() => {
+  const p = monthUsedPct.value
+  if (p === null || p === undefined) return ''
+  if (p > 90) return 'danger'
+  if (p > 70) return 'warning'
+  return ''
+})
+const monthTzLabel = computed(() => (monthTraffic.value.tz === 'UTC' ? 'UTC 月结' : '北京时间月结'))
 
 // History data comes as [{timestamp, data: {...}}]
 const cpuHistory = computed(() =>
@@ -458,6 +473,21 @@ onUnmounted(() => {
 
       <!-- Network -->
       <template v-if="selectedTab === 'network'">
+        <!-- 本月流量汇总 -->
+        <div class="month-summary glass-card animate-in">
+          <div class="month-summary-head">
+            <span class="month-summary-title">📅 本月流量 <span class="month-tz">{{ monthTzLabel }}</span></span>
+            <span v-if="monthQuotaGB > 0" class="month-pct" :class="monthPctClass">{{ monthUsedPct }}%</span>
+          </div>
+          <div class="month-summary-body">
+            <div class="month-used">{{ formatBytes(monthUsed) }}<span v-if="monthQuotaGB > 0" class="month-quota"> / {{ monthQuotaGB }} GB</span></div>
+            <div v-if="monthQuotaGB > 0" class="month-bar">
+              <div class="month-bar-fill" :class="monthPctClass" :style="{ width: `${Math.min(monthUsedPct || 0, 100)}%` }"></div>
+            </div>
+            <div class="month-hint">跨月自动归零 · 按厂商账单口径结算</div>
+          </div>
+        </div>
+
         <MetricChart
           class="animate-in"
           title="网络流量趋势"
@@ -467,6 +497,7 @@ onUnmounted(() => {
           :colors="['#34c759', '#ff3b30']"
           unit=" B"
         />
+        <TrafficDailyChart class="animate-in" :server-name="name" :days="30" />
       </template>
 
       <!-- Process -->
@@ -647,6 +678,81 @@ onUnmounted(() => {
 
 .service-badge.active { background: rgba(52, 199, 89, 0.12); color: var(--status-green); }
 .service-badge.failed { background: rgba(255, 59, 48, 0.12); color: var(--status-red); }
+
+/* 本月流量汇总条 */
+.month-summary {
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.month-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.month-summary-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.month-tz {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
+.month-pct {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--status-green, #34c759);
+}
+
+.month-pct.warning { color: #ff9500; }
+.month-pct.danger { color: #ff3b30; }
+
+.month-used {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.month-quota {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.month-bar {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.month-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.month-bar-fill.warning { background: linear-gradient(90deg, #ffb340, #ff9500); }
+.month-bar-fill.danger { background: linear-gradient(90deg, #ff6b6b, #ff3b30); }
+
+.month-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 8px;
+}
 
 .empty {
   text-align: center;

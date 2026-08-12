@@ -1,5 +1,7 @@
 """Dashboard query endpoints."""
 import json
+import time
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel
 from app.core.database import get_db
@@ -172,6 +174,75 @@ async def server_history(
         {"timestamp": row["timestamp"], "data": json.loads(row["data"])}
         for row in reversed(rows)
     ]
+
+
+@router.get("/servers/{name}/traffic/daily", dependencies=[Depends(require_user)])
+async def server_traffic_daily(name: str, days: int = Query(30, ge=1, le=90)):
+    """每日流量合计（北京时间日界），由 1h 聚合桶的 lifetime 最大值差分得出。"""
+    db = await get_db()
+
+    TZ8 = datetime.timezone(datetime.timedelta(hours=8))
+    now = int(time.time())
+    # 多取一天做差分基准
+    cur = await db.execute(
+        """SELECT ((timestamp + 28800) / 86400) AS day,
+                  MAX(CAST(json_extract(data, '$.network.lifetime_bytes_recv') AS INTEGER)) AS r,
+                  MAX(CAST(json_extract(data, '$.network.lifetime_bytes_sent') AS INTEGER)) AS s
+           FROM metrics_agg
+           WHERE server_name = ? AND interval = '1h' AND timestamp >= ?
+           GROUP BY day ORDER BY day""",
+        (name, now - (days + 1) * 86400),
+    )
+    rows = await cur.fetchall()
+    if not rows:
+        return []
+
+    # 基准: 今天北京零点前最近一条 raw 记录的 lifetime(raw 保留1天, 足够当天差分)
+    def day_start_bj(ts: int) -> int:
+        return int(datetime.datetime.fromtimestamp(ts, TZ8).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+    today_start = day_start_bj(now)
+    base_raw: tuple | None = None
+    cur = await db.execute(
+        "SELECT data FROM metrics_raw WHERE server_name = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT 1",
+        (name, today_start),
+    )
+    brow = await cur.fetchone()
+    if brow:
+        net = json.loads(brow["data"]).get("network", {})
+        rv = net.get("lifetime_bytes_recv")
+        sv = net.get("lifetime_bytes_sent")
+        if rv is not None and sv is not None:
+            base_raw = (int(rv), int(sv))
+
+    out = []
+    prev: tuple | None = None
+    for row in rows:
+        if row["r"] is None or row["s"] is None:
+            continue  # 该日聚合桶尚无 lifetime 字段(升级前历史数据)
+        day_utc0 = row["day"] * 86400 - 28800  # 该北京日的 UTC 零点
+        if day_utc0 > now:
+            break
+        if prev is None:
+            # 首日: 若正是今天且 raw 基准可用, 当天显示真实用量; 否则作基准(记 0)
+            if day_utc0 == today_start and base_raw is not None:
+                recv = max(0, row["r"] - base_raw[0])
+                sent = max(0, row["s"] - base_raw[1])
+            else:
+                recv = sent = 0
+            prev = (row["r"], row["s"])
+        else:
+            recv = max(0, row["r"] - prev[0])
+            sent = max(0, row["s"] - prev[1])
+            prev = (row["r"], row["s"])
+        date_str = datetime.datetime.fromtimestamp(day_utc0, TZ8).strftime("%m-%d")
+        out.append({
+            "date": date_str,
+            "recv_bytes": recv,
+            "sent_bytes": sent,
+            "total_bytes": recv + sent,
+        })
+    return out
 
 
 @router.get("/servers/{name}/overview", dependencies=[Depends(require_user)])

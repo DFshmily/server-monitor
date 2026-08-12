@@ -317,6 +317,14 @@ onMounted(() => {
         </div>
 
         <div class="detail-item">
+          <div class="detail-icon">⏱️</div>
+          <div class="detail-content">
+            <div class="detail-label">运行</div>
+            <div class="detail-value">{{ uptimeFormatted }}</div>
+          </div>
+        </div>
+
+        <div class="detail-item">
           <div class="detail-icon">📅</div>
           <div class="detail-content">
             <div class="detail-label">本月流量 <span class="month-tag" :title="monthTip">{{ monthTzLabel }}</span></div>
@@ -329,14 +337,6 @@ onMounted(() => {
             <div v-if="monthQuotaGB > 0" class="month-bar" :title="`本月已用额度 ${monthUsedPct}%`">
               <div class="month-bar-fill" :class="monthPctClass" :style="{ width: `${Math.min(monthUsedPct || 0, 100)}%` }"></div>
             </div>
-          </div>
-        </div>
-
-        <div class="detail-item">
-          <div class="detail-icon">⏱️</div>
-          <div class="detail-content">
-            <div class="detail-label">运行</div>
-            <div class="detail-value">{{ uptimeFormatted }}</div>
           </div>
         </div>
 
