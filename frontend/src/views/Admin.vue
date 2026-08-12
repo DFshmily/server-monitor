@@ -751,7 +751,10 @@ onMounted(async () => {
         </select>
         <input v-model="probeForm.target" class="probe-input" placeholder="目标：https://… / host:port / IP / 域名" maxlength="512" />
         <input v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
-        <input v-model.number="probeForm.interval" type="number" class="count-input" min="10" max="86400" title="探测间隔(秒)" placeholder="间隔s" />
+        <span class="interval-unit">
+          <input v-model.number="probeForm.interval" type="number" class="count-input" min="10" max="86400" title="探测间隔" placeholder="60" />
+          <em>秒</em>
+        </span>
         <button class="btn-primary" @click="saveProbe">{{ editingId ? '保存修改' : '添加' }}</button>
         <button v-if="editingId" class="btn-secondary" @click="cancelEdit">取消</button>
       </div>
@@ -1283,6 +1286,17 @@ onMounted(async () => {
 .probe-input:focus {
   border-color: var(--purple-500, #8b5cf6);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+}
+.interval-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.interval-unit em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 600;
 }
 .probe-table { display: flex; flex-direction: column; }
 .probe-row {
