@@ -1,0 +1,12 @@
+{
+  "公网IP": {
+    "cmd": "curl -s --max-time 5 ifconfig.me",
+    "interval": 300,
+    "timeout": 8
+  },
+  "磁盘温度": {
+    "cmd": "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{print $1/1000}'",
+    "interval": 60,
+    "unit": "°C"
+  }
+}

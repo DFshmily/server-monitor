@@ -32,6 +32,15 @@
 - **显示自动消**：前端仅当 `failed > 0` 时显示"(N 异常)"。服务恢复运行 → 下一次采集 `failed` 归零 → 异常标识自动消失，无需人工干预。
 - **常见假异常**：`systemd-run` 创建的一次性临时服务（如 `gw-restart-*.service`）执行完后会残留为 `failed` 状态，被误判为故障。清理：`sudo systemctl reset-failed <unit>`；排查：`systemctl --failed`。
 
+### 📊 图表事件标注（Grafana Annotations 风格）
+- 详情页趋势图上，告警🚨 / 离线⚠️ / 恢复✅ 自动画成彩色虚线竖线，维护窗口显示紫色高亮区域
+- 悬停竖线可查看事件详情；时间粒度切换时自动加载对应窗口的事件
+
+### 📈 自定义监控项（Agent 定期执行命令）
+- 每台服务器可配置任意命令定期执行并上报数值/文本，如：公网 IP 检测、温度、API 状态
+- 配置：`/etc/server-monitor/custom-commands.json`（示例见 `deploy/custom-commands.example.json`）
+- 详情页概览自动展示为指标卡片，支持数值型与字符串型（如 IP）输出
+
 ### 🔍 服务探活（外部可达性）
 - **HTTP(S)** — 状态码 / 响应时间 / 关键词匹配
 - **TCP 端口** — 端口是否开放可连接

@@ -1,6 +1,8 @@
 """Server metrics collector using psutil + docker."""
 import os
 import json
+import re
+import subprocess
 import time
 import socket
 import ssl
@@ -494,7 +496,96 @@ def get_services_metrics() -> dict:
         return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
-AGENT_VERSION = "1.4.0"  # bump when agent behavior changes (shown in Admin health panel)
+AGENT_VERSION = "1.5.2"  # bump when agent behavior changes (shown in Admin health panel)
+
+
+# ── 自定义监控项（哪吒风格：agent 定期执行命令上报数值）────────────
+# 配置文件: /etc/server-monitor/custom-commands.json
+# 格式: { "名称": {"cmd": "命令", "interval": 秒, "unit": "单位(可选)", "timeout": 秒(可选)} }
+# 例: { "公网IP": {"cmd": "curl -s --max-time 5 ifconfig.me", "interval": 300} }
+CUSTOM_CONFIG_FILE = os.environ.get(
+    "MONITOR_CUSTOM_CONFIG", "/etc/server-monitor/custom-commands.json"
+)
+_custom_state = {"config_mtime": 0, "config": {}, "last_run": {}, "results": {}}
+
+
+def _load_custom_config() -> dict:
+    """读取自定义命令配置（按 mtime 缓存，避免每次采集都读盘）。"""
+    try:
+        mtime = os.path.getmtime(CUSTOM_CONFIG_FILE)
+        if mtime == _custom_state["config_mtime"]:
+            return _custom_state["config"]
+        with open(CUSTOM_CONFIG_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+        _custom_state["config"] = cfg if isinstance(cfg, dict) else {}
+        _custom_state["config_mtime"] = mtime
+        _custom_state["last_run"] = {}
+        _custom_state["results"] = {}
+    except FileNotFoundError:
+        _custom_state["config"] = {}
+        _custom_state["config_mtime"] = 0
+    except Exception:
+        _custom_state["config"] = {}
+    return _custom_state["config"]
+
+
+def _run_custom_command(name: str, item: dict) -> dict:
+    """执行一条自定义命令，解析 stdout 首行为数值。"""
+    cmd = item.get("cmd", "")
+    unit = item.get("unit", "")
+    timeout = float(item.get("timeout", 5))
+    if not cmd:
+        return {"ok": False, "error": "未配置命令"}
+    try:
+        proc = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        )
+        if proc.returncode != 0:
+            return {"ok": False, "error": (proc.stderr or f"exit {proc.returncode}").strip()[:120]}
+        out = (proc.stdout or "").strip()
+        if not out:
+            return {"ok": False, "error": "无输出"}
+        line = out.splitlines()[0]
+        # 1) 整个输出就是数值 → 直接取
+        try:
+            return {"ok": True, "value": float(line), "unit": unit, "raw": line[:80]}
+        except ValueError:
+            pass
+        # 2) 行首带数值（如 "12.3 MB"、"45°C"）→ 提取数值
+        # 注意 [\d.]+ 会贪婪吞掉整个 IP（141.147.147.92），float 失败要兜底
+        m = re.match(r"^\s*(-?[\d.]+)", line)
+        if m:
+            try:
+                return {"ok": True, "value": float(m.group(1)), "unit": unit, "raw": line[:80]}
+            except ValueError:
+                pass
+        # 3) 非数值字符串（如公网 IP）→ value=None, 前端显示 raw 原文
+        return {"ok": True, "value": None, "unit": unit, "raw": line[:80]}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "执行超时"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
+
+
+def get_custom_metrics() -> dict:
+    """按各自间隔执行自定义命令，返回 {名称: {ok, value, unit, raw?, error?}}。"""
+    cfg = _load_custom_config()
+    if not cfg:
+        return {}
+    now = time.time()
+    out = {}
+    for name, item in cfg.items():
+        interval = float(item.get("interval", 60))
+        last = _custom_state["last_run"].get(name, 0.0)
+        if now - last < interval:
+            if name in _custom_state["results"]:
+                out[name] = _custom_state["results"][name]
+            continue
+        _custom_state["last_run"][name] = now
+        result = _run_custom_command(name, item)
+        _custom_state["results"][name] = result
+        out[name] = result
+    return out
 
 
 def collect_all() -> dict:
@@ -515,6 +606,7 @@ def collect_all() -> dict:
         "docker": get_docker_metrics(),
         "services": get_services_metrics(),
         "certificates": get_certificates_metrics(),
+        "custom": get_custom_metrics(),
     }
 
 

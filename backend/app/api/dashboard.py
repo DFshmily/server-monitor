@@ -291,6 +291,28 @@ async def server_overview(name: str):
     }
 
 
+@router.get("/servers/{name}/events", dependencies=[Depends(require_user)])
+async def server_events(name: str, hours: int = 24):
+    """服务器相关事件(告警/离线/恢复) + 维护窗口，供详情页图表标注（Grafana Annotations 风格）。"""
+    db = await get_db()
+    now = int(time.time())
+    start = now - min(max(hours, 1), 720) * 3600
+    cur = await db.execute(
+        "SELECT kind, message, created_at FROM alert_events "
+        "WHERE server_name = ? AND kind NOT LIKE 'probe%' AND created_at >= ? "
+        "ORDER BY created_at ASC LIMIT 300",
+        (name, start),
+    )
+    events = [{"ts": r["created_at"], "kind": r["kind"], "message": r["message"]} for r in await cur.fetchall()]
+    cur = await db.execute(
+        "SELECT server_name, start_at, end_at, note FROM maintenance_windows "
+        "WHERE (server_name = ? OR server_name = '*') AND end_at >= ?",
+        (name, start),
+    )
+    windows = [{"start": r["start_at"], "end": r["end_at"], "note": r["note"]} for r in await cur.fetchall()]
+    return {"events": events, "maintenance": windows}
+
+
 @router.get("/agents-health", dependencies=[Depends(require_admin)])
 async def agents_health():
     """每台 agent 的上报健康：最后上报时间 / 版本 / 推送频率。"""

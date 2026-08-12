@@ -17,23 +17,103 @@ const props = defineProps({
   unit: { type: String, default: '%' },
   areaStyle: { type: Boolean, default: true },
   smooth: { type: Boolean, default: true },
-  max: { type: Number, default: null }
+  max: { type: Number, default: null },
+  // 事件标注（Grafana Annotations 风格）：[{ts, kind, message}]
+  annotations: { type: Array, default: () => [] },
+  // 维护窗口区域高亮：[{start, end, note}]
+  markAreas: { type: Array, default: () => [] }
 })
 
 const chartRef = ref(null)
 let chart = null
 
-const formatTime = (ts) => {
+const tsOf = (d) => d?.[props.xKey] ?? d?.time ?? d?.timestamp
+const fmtTime = (ts, withDate) => {
   if (!ts) return ''
   // Handle both unix seconds and milliseconds; force Beijing time (UTC+8)
   const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
   const d = new Date(ms)
   const p = (n) => String(n).padStart(2, '0')
-  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+  return withDate
+    ? `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+    : `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+}
+// 数据跨度 > 1.5 天时 x 轴带日期（1d / 1mon / 自定义视图）
+const spanDays = computed(() => {
+  const d = props.data
+  if (!d || d.length < 2) return 0
+  const first = tsOf(d[0]) || 0
+  const last = tsOf(d[d.length - 1]) || 0
+  return Math.abs(last - first) / 86400
+})
+const withDate = computed(() => spanDays.value > 1.5)
+
+const MARK_STYLE = {
+  threshold: { color: '#ff3b30', label: '🚨' },
+  offline: { color: '#ff9500', label: '⚠️' },
+  recovered: { color: '#34c759', label: '✅' }
+}
+
+// 事件 ts → 最近数据点索引（category 轴按索引定位最可靠）
+const indexOfTs = (ts) => {
+  const d = props.data
+  if (!d || d.length === 0) return 0
+  let best = 0
+  let bestDiff = Infinity
+  d.forEach((row, i) => {
+    const diff = Math.abs((tsOf(row) || 0) - ts)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = i
+    }
+  })
+  return best
+}
+
+const buildMarkLine = () => {
+  // 最多标 40 条，避免图表被线淹没
+  const xData = props.data.map(d => fmtTime(tsOf(d), withDate.value))
+  const list = (props.annotations || []).slice(-40)
+  if (list.length === 0 || xData.length === 0) return undefined
+  return {
+    symbol: 'none',
+    animation: false,
+    // category 轴用最近数据点的类目名定位；两点([min,max])让竖线贯穿绘图区
+    data: list.map(a => {
+      const st = MARK_STYLE[a.kind] || { color: '#8e8e93', label: '•' }
+      const x = xData[indexOfTs(a.ts)]
+      return [{
+        xAxis: x,
+        yAxis: 'min',
+        lineStyle: { color: st.color, width: 1.2, type: 'dashed' },
+        label: { formatter: st.label, position: 'insideStartBottom', fontSize: 10, color: st.color },
+        tooltip: { formatter: () => a.message || a.kind }
+      }, {
+        xAxis: x,
+        yAxis: 'max'
+      }]
+    })
+  }
+}
+
+const buildMarkArea = () => {
+  const list = props.markAreas || []
+  const xData = props.data.map(d => fmtTime(tsOf(d), withDate.value))
+  if (list.length === 0 || xData.length === 0) return undefined
+  return {
+    silent: true,
+    itemStyle: { color: 'rgba(124, 58, 237, 0.10)' },
+    data: list.map(m => [{
+      xAxis: xData[indexOfTs(m.start)],
+      name: m.note || '维护'
+    }, {
+      xAxis: xData[indexOfTs(m.end)]
+    }])
+  }
 }
 
 const buildOption = () => {
-  const xData = props.data.map(d => formatTime(d[props.xKey] || d.time || d.timestamp))
+  const xData = props.data.map(d => fmtTime(tsOf(d), withDate.value))
   const series = props.yKeys.map((key, i) => ({
     name: props.yLabels[i] || key,
     type: 'line',
@@ -52,6 +132,8 @@ const buildOption = () => {
         { offset: 1, color: (props.colors[i] || '#7c3aed') + '05' }
       ])
     } : undefined,
+    markLine: i === 0 ? buildMarkLine() : undefined,
+    markArea: i === 0 ? buildMarkArea() : undefined,
     data: props.data.map(d => d[key] ?? d[key.replace('_', '')] ?? 0)
   }))
 
@@ -126,7 +208,7 @@ onMounted(() => {
   }
 })
 
-watch(() => props.data, () => {
+watch(() => [props.data, props.annotations, props.markAreas], () => {
   if (chart) {
     chart.setOption(buildOption())
   }

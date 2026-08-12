@@ -89,6 +89,9 @@ const load1 = computed(() => latest.value.load?.load1 ?? '-')
 const load5 = computed(() => latest.value.load?.load5 ?? '-')
 const load15 = computed(() => latest.value.load?.load15 ?? '-')
 
+// 自定义监控项（agent 定期执行命令上报）
+const customItems = computed(() => latest.value.custom || {})
+
 const processes = computed(() => latest.value.processes?.top_cpu || [])
 const servicesList = computed(() => latest.value.services?.services || [])
 const dockerContainers = computed(() => latest.value.docker?.containers || [])
@@ -199,6 +202,34 @@ const goBack = () => {
   router.push('/')
 }
 
+// ── 事件标注（Grafana Annotations 风格）──
+const events = ref([])
+const maintenance = ref([])
+const annotations = computed(() => events.value.map(e => ({ ts: e.ts, kind: e.kind, message: e.message })))
+const markAreas = computed(() => maintenance.value.map(m => ({ start: m.start, end: m.end, note: m.note })))
+const eventsHours = computed(() => {
+  const iv = selectedInterval.value
+  if (iv === 'realtime' || iv === '1min' || iv === '5min') return 3
+  if (iv === '1h') return 24
+  if (iv === '1d') return 48
+  return 720
+})
+const fetchEvents = async () => {
+  if (!name.value) return
+  try {
+    const token = localStorage.getItem('monitor_token')
+    const res = await fetch(`/api/servers/${name.value}/events?hours=${eventsHours.value}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    events.value = data.events || []
+    maintenance.value = data.maintenance || []
+  } catch (e) {
+    // 事件标注加载失败不影响图表
+  }
+}
+
 // 导出当前视图数据为 CSV
 const exportCSV = () => {
   if (!history.value || history.value.length === 0) {
@@ -244,6 +275,7 @@ const sectionRef = ref(null)
 onMounted(async () => {
   await store.fetchLatest(name.value)
   await fetchHistory()
+  fetchEvents()
   store.connectWebSocket()
 
   if (sectionRef.value) {
@@ -260,6 +292,7 @@ onMounted(async () => {
 
 watch(selectedInterval, () => {
   fetchHistory()
+  fetchEvents()
 })
 
 // 实时模式：WebSocket 每 2 秒推送最新值 → 增量追加到图表，保持 200 点滚动窗口
@@ -350,6 +383,19 @@ onUnmounted(() => {
         <div class="stat-value">{{ gpuPercent.toFixed(1) }}%</div>
         <div class="stat-label">GPU</div>
       </div>
+      <!-- 自定义监控项 -->
+      <div
+        v-for="(item, key) in customItems"
+        :key="key"
+        class="stat-card glass-card"
+        :title="item.raw ? `${key}: ${item.raw}` : ''"
+      >
+        <div class="stat-value" :class="{ err: !item.ok }">
+          {{ item.ok ? (item.value != null ? `${item.value}${item.unit || ''}` : item.raw) : '—' }}
+        </div>
+        <div class="stat-label">{{ key }}</div>
+        <div v-if="!item.ok" class="stat-sub err">{{ item.error || '获取失败' }}</div>
+      </div>
       <div class="stat-card glass-card">
         <div class="stat-value load">{{ load1 }}</div>
         <div class="stat-label">负载 (1/5/15)</div>
@@ -379,6 +425,8 @@ onUnmounted(() => {
       <template v-if="selectedTab === 'overview'">
         <div class="grid-2">
           <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
             class="animate-in"
             title="CPU 使用率"
             :data="cpuHistory"
@@ -389,6 +437,8 @@ onUnmounted(() => {
             :max="100"
           />
           <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
             class="animate-in"
             title="内存使用率"
             :data="memHistory"
@@ -399,6 +449,8 @@ onUnmounted(() => {
             :max="100"
           />
           <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
             class="animate-in"
             title="磁盘使用率"
             :data="diskHistory"
@@ -409,6 +461,8 @@ onUnmounted(() => {
             :max="100"
           />
           <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
             class="animate-in"
             title="网络流量"
             :data="netHistory"
@@ -423,6 +477,8 @@ onUnmounted(() => {
       <!-- CPU -->
       <template v-if="selectedTab === 'cpu'">
         <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
           class="animate-in"
           title="CPU 使用率趋势"
           :data="cpuHistory"
@@ -433,6 +489,8 @@ onUnmounted(() => {
           :max="100"
         />
         <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
           class="animate-in"
           title="系统负载"
           :data="loadHistory"
@@ -446,6 +504,8 @@ onUnmounted(() => {
       <!-- Memory -->
       <template v-if="selectedTab === 'memory'">
         <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
           class="animate-in"
           title="内存使用率趋势"
           :data="memHistory"
@@ -460,6 +520,8 @@ onUnmounted(() => {
       <!-- Disk -->
       <template v-if="selectedTab === 'disk'">
         <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
           class="animate-in"
           title="磁盘使用率趋势"
           :data="diskHistory"
@@ -489,6 +551,8 @@ onUnmounted(() => {
         </div>
 
         <MetricChart
+            :annotations="annotations"
+            :mark-areas="markAreas"
           class="animate-in"
           title="网络流量趋势"
           :data="netHistory"
@@ -628,6 +692,8 @@ onUnmounted(() => {
 .stat-value.warning { color: var(--status-orange); }
 .stat-value.danger { color: var(--status-red); }
 .stat-value.load { font-size: 24px; }
+.stat-value.err { color: var(--status-red); font-size: 20px; }
+.stat-sub.err { color: var(--status-red); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
 
 .stat-label {
   font-size: 12px;
