@@ -440,7 +440,11 @@ const agentHealth = ref([])
 async function loadAgentHealth() {
   try { agentHealth.value = await api('/api/agents-health') } catch (e) { error.value = e.message }
 }
-const fmtAge = (a) => a.online ? `${a.last_age} 秒前` : `${a.last_age} 秒前（离线）`
+const fmtAge = (a) => {
+  // 相对时间 + 绝对时间（北京时间），一眼看清上次上报时刻
+  const rel = a.online ? `${a.last_age} 秒前` : `${a.last_age} 秒前（离线）`
+  return `${rel} · ${formatTs(a.last_ts)}`
+}
 
 const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark' }
 
