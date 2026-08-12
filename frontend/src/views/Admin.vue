@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AlertStatsChart from '../components/AlertStatsChart.vue'
+import TrafficDailyChart from '../components/TrafficDailyChart.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -73,6 +74,29 @@ async function loadRules() {
   try {
     rules.value = await api('/api/alerts/rules')
   } catch (e) { error.value = e.message }
+}
+const servers = ref([])
+async function loadServers() {
+  try {
+    servers.value = await api('/api/servers')
+    // 顺带取最新数据, 用于月度汇总行
+    for (const s of servers.value) {
+      try { s.latest = await api(`/api/servers/${s.name}/latest`) } catch (e) { s.latest = null }
+    }
+  } catch (e) { error.value = e.message }
+}
+const serverLabel = (s) => s.alias || (s.name === 'tencent' ? '广州' : s.name)
+const fmtB = (b) => {
+  if (!b) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1)
+  return `${(b / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
+}
+const monthLine = (s) => {
+  const tm = s.latest?.traffic_month || {}
+  const used = fmtB(tm.total_bytes || 0)
+  if (tm.quota_gb > 0) return `${tm.month || ''} · ${used} / ${tm.quota_gb} GB · ${tm.used_percent}% (${tm.tz === 'UTC' ? 'UTC' : '北京'})`
+  return `${tm.month || ''} · ${used} (未设额度)`
 }
 async function loadEvents() {
   try {
@@ -282,6 +306,7 @@ onMounted(async () => {
   try {
     await loadUsers()
     await loadInvites()
+    await loadServers()
     await loadRules()
     await loadEvents()
     await loadAudits()
@@ -497,6 +522,23 @@ onMounted(async () => {
       <AlertStatsChart :days="14" />
     </div>
 
+    <!-- 本月流量 · 近30天 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>📅 本月流量 · 近 30 天</h3>
+      </div>
+      <div v-if="servers.length === 0" class="muted-tag">暂无服务器数据</div>
+      <div v-else class="traffic-grid">
+        <div v-for="s in servers" :key="s.name" class="traffic-server">
+          <div class="traffic-server-head">
+            <span class="traffic-server-name">{{ serverLabel(s) }}</span>
+            <span class="traffic-server-line">{{ monthLine(s) }}</span>
+          </div>
+          <TrafficDailyChart :server-name="s.name" :days="30" />
+        </div>
+      </div>
+    </div>
+
     <!-- 告警事件 + 审计日志 -->
     <div class="glass-card section">
       <div class="section-head">
@@ -614,6 +656,40 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--status-green, #34c759);
   margin-right: 4px;
+}
+
+/* 本月流量 · 近30天 */
+.traffic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+}
+
+.traffic-server {
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 12px;
+}
+
+.traffic-server-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.traffic-server-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.traffic-server-line {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .manual-row {
