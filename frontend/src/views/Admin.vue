@@ -479,6 +479,66 @@ const fmtAge = (a) => {
   return `${rel} · ${formatTs(a.last_ts)}`
 }
 
+// ── 自定义监控项（管理页配置 → 数据库 → agent 拉取执行）──
+const customCmds = ref([])
+const customForm = ref({ server_name: 'oracle', name: '', cmd: '', interval: 60, intervalUnit: 's', unit: '', timeout: 5 })
+const showCustomForm = ref(false)
+const editingCustomId = ref(null)
+const emptyCustomForm = () => ({ server_name: 'oracle', name: '', cmd: '', interval: 60, intervalUnit: 's', unit: '', timeout: 5 })
+
+async function loadCustomCmds() {
+  try { customCmds.value = await api('/api/custom-commands') } catch (e) { error.value = e.message }
+}
+function startEditCustom(c) {
+  const iv = pickUnit(c.interval)
+  customForm.value = { server_name: c.server_name, name: c.name, cmd: c.cmd, interval: iv.v, intervalUnit: iv.u, unit: c.unit || '', timeout: c.timeout }
+  editingCustomId.value = c.id
+  showCustomForm.value = true
+}
+function cancelEditCustom() {
+  editingCustomId.value = null
+  customForm.value = emptyCustomForm()
+  showCustomForm.value = false
+}
+async function saveCustom() {
+  error.value = ''; success.value = ''
+  if (!customForm.value.name.trim() || !customForm.value.cmd.trim()) {
+    error.value = '请填写名称和命令'
+    return
+  }
+  const intervalSec = Math.round(customForm.value.interval * UNIT_MULT[customForm.value.intervalUnit])
+  if (intervalSec < 10 || intervalSec > 86400) {
+    error.value = '执行间隔需在 10 秒 ~ 24 小时之间'
+    return
+  }
+  const body = { server_name: customForm.value.server_name, name: customForm.value.name, cmd: customForm.value.cmd, interval: intervalSec, unit: customForm.value.unit, timeout: customForm.value.timeout }
+  try {
+    if (editingCustomId.value) {
+      await api(`/api/custom-commands/${editingCustomId.value}`, { method: 'PUT', body: JSON.stringify(body) })
+      success.value = '✅ 自定义监控项已更新'
+    } else {
+      await api('/api/custom-commands', { method: 'POST', body: JSON.stringify(body) })
+      success.value = '✅ 自定义监控项已添加（agent 1 分钟内生效）'
+    }
+    cancelEditCustom()
+    await loadCustomCmds()
+  } catch (e) { error.value = e.message }
+}
+async function toggleCustom(c) {
+  try {
+    await api(`/api/custom-commands/${c.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !c.enabled }) })
+    await loadCustomCmds()
+  } catch (e) { error.value = e.message }
+}
+async function deleteCustom(c) {
+  error.value = ''; success.value = ''
+  try {
+    await api(`/api/custom-commands/${c.id}`, { method: 'DELETE' })
+    success.value = `❌ 已删除自定义监控项 ${c.name}`
+    await loadCustomCmds()
+  } catch (e) { error.value = e.message }
+}
+
 const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark' }
 
 onMounted(async () => {
@@ -497,6 +557,7 @@ onMounted(async () => {
     await loadProbes()
     await loadMaintenance()
     await loadAgentHealth()
+    await loadCustomCmds()
   } catch (e) {
     error.value = e.message
   }
@@ -830,6 +891,57 @@ onMounted(async () => {
           </span>
         </div>
         <div v-if="agentHealth.length === 0" class="agent-row"><span class="muted-tag">暂无数据</span></div>
+      </div>
+    </div>
+
+    <!-- 自定义监控项 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>📈 自定义监控项</h3>
+        <button class="btn-secondary" @click="showCustomForm ? cancelEditCustom() : (showCustomForm = true)">
+          {{ showCustomForm ? '收起' : '＋ 添加命令' }}
+        </button>
+      </div>
+      <div class="section-hint">配置任意命令，由对应服务器 agent 定期执行并上报到详情页概览（agent 约 1 分钟内生效）· ⚠️ 不要放会泄露敏感信息的命令</div>
+      <div v-if="showCustomForm" class="probe-form">
+        <select v-model="customForm.server_name" class="count-input" style="width:100px">
+          <option value="oracle">oracle</option>
+          <option value="tencent">tencent</option>
+        </select>
+        <input v-model="customForm.name" class="probe-input" style="max-width:140px" placeholder="名称，如：CPU温度" maxlength="32" />
+        <input v-model="customForm.cmd" class="probe-input" placeholder="命令，如：df -BG / | awk 'NR==2{print $4}'" maxlength="512" />
+        <input v-model="customForm.unit" class="probe-input" style="max-width:90px" placeholder="单位(可选)" maxlength="16" />
+        <span class="interval-unit">
+          <input v-model.number="customForm.interval" type="number" class="count-input" min="1" max="86400" title="执行间隔" placeholder="60" />
+          <select v-model="customForm.intervalUnit" class="count-input" style="width:74px" title="间隔单位">
+            <option value="s">秒</option>
+            <option value="m">分钟</option>
+            <option value="h">小时</option>
+          </select>
+        </span>
+        <button class="btn-primary" @click="saveCustom">{{ editingCustomId ? '保存修改' : '添加' }}</button>
+        <button v-if="editingCustomId" class="btn-secondary" @click="cancelEditCustom">取消</button>
+      </div>
+      <div class="probe-table">
+        <div class="probe-row header custom-row">
+          <span>服务器</span><span>名称</span><span>命令</span><span>间隔</span><span>状态</span><span>操作</span>
+        </div>
+        <div v-for="c in customCmds" :key="c.id" class="probe-row custom-row">
+          <span>{{ c.server_name }}</span>
+          <span class="probe-name">{{ c.name }}</span>
+          <span class="probe-target" :title="c.cmd">{{ c.cmd }}</span>
+          <span class="probe-latency">{{ pickUnit(c.interval).v }}{{ pickUnit(c.interval).u === 's' ? '秒' : pickUnit(c.interval).u === 'm' ? '分钟' : '小时' }}</span>
+          <span>
+            <span class="status-dot-mini" :class="{ on: c.enabled }"></span>
+            {{ c.enabled ? '启用' : '停用' }}
+          </span>
+          <span class="probe-actions">
+            <button class="link-btn" @click="startEditCustom(c)">编辑</button>
+            <button class="link-btn" @click="toggleCustom(c)">{{ c.enabled ? '停用' : '启用' }}</button>
+            <button class="link-btn danger" @click="deleteCustom(c)">删除</button>
+          </span>
+        </div>
+        <div v-if="customCmds.length === 0" class="probe-row"><span class="muted-tag">还没有自定义监控项 · 点击右上角"添加命令"创建</span></div>
       </div>
     </div>
 
@@ -1322,6 +1434,10 @@ onMounted(async () => {
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   font-size: 13px;
   min-width: 0;
+}
+/* 自定义监控项：6 列布局（覆盖 probe-row 的 7 列；手机端 media query 仍生效） */
+.probe-row.custom-row {
+  grid-template-columns: 0.8fr 1fr 2.4fr 0.8fr 0.9fr 1.4fr;
 }
 .probe-row.header {
   color: var(--text-tertiary);

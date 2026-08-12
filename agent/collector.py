@@ -496,7 +496,7 @@ def get_services_metrics() -> dict:
         return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
-AGENT_VERSION = "1.5.2"  # bump when agent behavior changes (shown in Admin health panel)
+AGENT_VERSION = "1.6.0"  # bump when agent behavior changes (shown in Admin health panel)
 
 
 # ── 自定义监控项（哪吒风格：agent 定期执行命令上报数值）────────────
@@ -509,8 +509,17 @@ CUSTOM_CONFIG_FILE = os.environ.get(
 _custom_state = {"config_mtime": 0, "config": {}, "last_run": {}, "results": {}}
 
 
+def set_custom_config(config: dict) -> None:
+    """由 main.py 定期从后端拉取配置后注入（管理页配置 → 数据库 → agent）。"""
+    if not isinstance(config, dict):
+        config = {}
+    _custom_state["config"] = config
+    _custom_state["last_run"] = {}
+    _custom_state["results"] = {}
+
+
 def _load_custom_config() -> dict:
-    """读取自定义命令配置（按 mtime 缓存，避免每次采集都读盘）。"""
+    """后备配置源：本地文件（后端不可达时兜底）。"""
     try:
         mtime = os.path.getmtime(CUSTOM_CONFIG_FILE)
         if mtime == _custom_state["config_mtime"]:
@@ -569,7 +578,10 @@ def _run_custom_command(name: str, item: dict) -> dict:
 
 def get_custom_metrics() -> dict:
     """按各自间隔执行自定义命令，返回 {名称: {ok, value, unit, raw?, error?}}。"""
-    cfg = _load_custom_config()
+    # 优先用后端注入的配置（管理页配置），空时兜底本地文件
+    cfg = _custom_state["config"]
+    if not cfg:
+        cfg = _load_custom_config()
     if not cfg:
         return {}
     now = time.time()

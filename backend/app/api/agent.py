@@ -37,3 +37,15 @@ async def receive_metrics(payload: AgentPayload):
         "data": payload.metrics,
     })
     return {"status": "ok"}
+
+
+@router.get("/custom-config", dependencies=[Depends(verify_token)])
+async def agent_custom_config(server_name: str):
+    """Agent 拉取自己的自定义监控命令配置（管理页配置 → 数据库 → agent 执行）。"""
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT name, cmd, interval, unit, timeout FROM custom_commands "
+        "WHERE server_name = ? AND enabled = 1 ORDER BY id",
+        (server_name,),
+    )
+    return [dict(r) for r in await cur.fetchall()]

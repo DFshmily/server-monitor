@@ -21,7 +21,7 @@ except ImportError:
     import requests as http_client
     HAS_CURL_CFFI = False
 
-from collector import collect_all
+from collector import collect_all, set_custom_config
 
 # Configuration from environment or defaults
 BACKEND_URL = os.environ.get("MONITOR_BACKEND_URL", "http://localhost:8000")
@@ -107,6 +107,43 @@ def push_metrics(data: dict) -> bool:
     return False
 
 
+# 自定义监控命令配置：定期从后端拉取（管理页配置），失败静默保留旧配置
+CUSTOM_CONFIG_REFRESH = 60  # 秒
+_last_custom_fetch = 0.0
+
+
+def fetch_custom_config() -> None:
+    """拉取本服务器在管理页配置的自定义监控命令，注入 collector。"""
+    global _last_custom_fetch
+    if time.time() - _last_custom_fetch < CUSTOM_CONFIG_REFRESH:
+        return
+    _last_custom_fetch = time.time()
+    try:
+        base = ORIGIN_URL or BACKEND_URL
+        url = f"{base}/api/agent/custom-config?server_name={SERVER_NAME or 'unknown'}"
+        headers = {"Authorization": f"Bearer {API_KEY}"}
+        kw = dict(HTTP_KW)
+        if ORIGIN_URL:
+            headers["Host"] = PUSH_HOST or "dashboard.dfshmily.icu"
+            kw["verify"] = PUSH_VERIFY
+        resp = http_client.get(url, headers=headers, timeout=10, **kw)
+        if resp.status_code == 200:
+            items = resp.json()  # [{name, cmd, interval, unit, timeout}]
+            cfg = {}
+            for it in items:
+                cfg[it.get("name")] = {
+                    "cmd": it.get("cmd", ""),
+                    "interval": it.get("interval", 60),
+                    "unit": it.get("unit", ""),
+                    "timeout": it.get("timeout", 5),
+                }
+            set_custom_config(cfg)
+        else:
+            logger.warning(f"custom-config fetch failed ({resp.status_code})")
+    except Exception as e:
+        logger.warning(f"custom-config fetch error: {e}")
+
+
 def main():
     logger.info(f"Agent starting...")
     logger.info(f"  Backend: {BACKEND_URL}{' (直连源站: ' + ORIGIN_URL + ')' if ORIGIN_URL else ''}")
@@ -123,6 +160,7 @@ def main():
         start = time.time()
 
         try:
+            fetch_custom_config()  # 内部节流 60s
             data = collect_all()
             success = push_metrics(data)
 

@@ -142,6 +142,19 @@ async def init_db() -> None:
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_maint_time ON maintenance_windows(start_at, end_at);
+
+        CREATE TABLE IF NOT EXISTS custom_commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            cmd TEXT NOT NULL,
+            interval INTEGER NOT NULL DEFAULT 60,
+            unit TEXT DEFAULT '',
+            timeout INTEGER NOT NULL DEFAULT 5,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_server ON custom_commands(server_name);
     """)
     # ── Migrations (idempotent ALTERs for schema evolution) ──
     cols = [r["name"] for r in await (await db.execute("PRAGMA table_info(login_attempts)")).fetchall()]

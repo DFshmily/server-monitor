@@ -17,6 +17,7 @@ from app.api.auth import router as auth_router
 from app.api.ws import router as ws_router
 from app.api.alerts import router as alerts_router
 from app.api.probes import router as probes_router
+from app.api.custom import router as custom_router
 from app.services.aggregator import aggregator_loop
 from app.services.alerts import alert_loop
 from app.services.probes import probe_loop
@@ -87,6 +88,7 @@ app.include_router(auth_router)
 app.include_router(ws_router)
 app.include_router(alerts_router)
 app.include_router(probes_router)
+app.include_router(custom_router)
 
 # Serve frontend static files if built
 if FRONTEND_DIST.is_dir():
