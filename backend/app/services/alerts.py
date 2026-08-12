@@ -79,6 +79,18 @@ def _extract_metric(data: dict, metric: str):
             if not total:
                 return None, None
             return round(total / (1024 ** 3) / TRAFFIC_QUOTA_GB * 100, 2), "%"
+        if metric.startswith("custom:"):
+            # 自定义监控项: metric 格式 "custom:项名称"
+            item = metric.split(":", 1)[1]
+            c = (data.get("custom") or {}).get(item)
+            if c and c.get("ok") and c.get("value") is not None:
+                return c["value"], c.get("unit") or ""
+            return None, None
+        if metric == "apt_updates":
+            au = data.get("apt_updates") or {}
+            if au.get("ok"):
+                return au.get("count", 0), "个"
+            return None, None
     except Exception:
         return None, None
     return None, None

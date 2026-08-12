@@ -376,6 +376,10 @@ async def list_login_logs(limit: int = 20, offset: int = 0, email: str = "", suc
         params + [limit, offset],
     )
     items = [dict(r) for r in await cur.fetchall()]
+    # 附 IP 归属地（ip2region 离线库）
+    from app.services.ip_region import lookup
+    for it in items:
+        it["region"] = lookup(it.get("ip") or "")
     return {"total": total, "items": items}
 
 

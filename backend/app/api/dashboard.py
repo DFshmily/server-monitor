@@ -291,6 +291,34 @@ async def server_overview(name: str):
     }
 
 
+@router.get("/servers/{name}/custom-history", dependencies=[Depends(require_user)])
+async def custom_history(name: str, item: str, hours: int = 24):
+    """自定义监控项历史值（从 metrics_raw 采样；raw 保留 1 天，故上限 24h）。"""
+    db = await get_db()
+    now = int(time.time())
+    start = now - min(max(hours, 1), 24) * 3600
+    cur = await db.execute(
+        "SELECT timestamp, data FROM metrics_raw WHERE server_name = ? AND timestamp >= ? "
+        "ORDER BY timestamp ASC",
+        (name, start),
+    )
+    rows = await cur.fetchall()
+    points = []
+    last = 0
+    for r in rows:
+        c = (json.loads(r["data"]).get("custom") or {}).get(item)
+        if not c or c.get("value") is None:
+            continue
+        if r["timestamp"] - last < 60:  # 采样：每 60s 一个点
+            continue
+        last = r["timestamp"]
+        points.append({"timestamp": r["timestamp"], "value": c["value"]})
+    if len(points) > 500:  # 限制点数
+        step = len(points) // 500 + 1
+        points = points[::step]
+    return points
+
+
 @router.get("/servers/{name}/events", dependencies=[Depends(require_user)])
 async def server_events(name: str, hours: int = 24):
     """服务器相关事件(告警/离线/恢复) + 维护窗口，供详情页图表标注（Grafana Annotations 风格）。"""

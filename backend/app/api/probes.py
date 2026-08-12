@@ -157,3 +157,34 @@ async def list_results(rule_id: int, limit: int = 30):
         (rule_id, limit),
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+@router.get("/rules/{rule_id}/latency", dependencies=[Depends(require_admin)])
+async def latency_history(rule_id: int, hours: int = 24):
+    """探活延迟历史（供趋势图）：采样最近 N 小时的成功探测延迟。"""
+    db = await get_db()
+    now = int(time.time())
+    start = now - min(max(hours, 1), 168) * 3600
+    cur = await db.execute(
+        "SELECT ok, latency_ms, created_at FROM probe_results "
+        "WHERE rule_id = ? AND created_at >= ? ORDER BY created_at ASC",
+        (rule_id, start),
+    )
+    rows = await cur.fetchall()
+    points = []
+    last = 0
+    for r in rows:
+        if r["latency_ms"] is None:
+            continue
+        if r["created_at"] - last < 60:  # 每 60s 采样一点
+            continue
+        last = r["created_at"]
+        points.append({
+            "timestamp": r["created_at"],
+            "latency": r["latency_ms"],
+            "ok": bool(r["ok"]),
+        })
+    if len(points) > 500:
+        step = len(points) // 500 + 1
+        points = points[::step]
+    return points

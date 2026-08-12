@@ -116,6 +116,7 @@ const monthTip = computed(() => {
 })
 
 const cpuCores = computed(() => latest.value.cpu?.cores ?? 0)
+const aptCount = computed(() => (latest.value.apt_updates?.ok ? latest.value.apt_updates.count : null))
 
 const uptimeSeconds = computed(() => latest.value.system?.uptime_seconds ?? 0)
 const uptimeFormatted = computed(() => {
@@ -372,6 +373,14 @@ onMounted(() => {
           <div class="detail-content">
             <div class="detail-label">核心</div>
             <div class="detail-value">{{ cpuCores }} 核</div>
+          </div>
+        </div>
+
+        <div class="detail-item" v-if="aptCount !== null">
+          <div class="detail-icon">🔄</div>
+          <div class="detail-content">
+            <div class="detail-label">待更新</div>
+            <div class="detail-value" :class="{ 'text-warning': aptCount > 0 }">{{ aptCount }} 个</div>
           </div>
         </div>
       </div>
@@ -826,6 +835,11 @@ onMounted(() => {
 
 .text-danger {
   color: #ff3b30 !important;
+}
+
+.text-warning {
+  color: #ff9500 !important;
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {

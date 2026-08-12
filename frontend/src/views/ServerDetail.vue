@@ -91,6 +91,29 @@ const load15 = computed(() => latest.value.load?.load15 ?? '-')
 
 // 自定义监控项（agent 定期执行命令上报）
 const customItems = computed(() => latest.value.custom || {})
+const aptUpdates = computed(() => latest.value.apt_updates || {})
+const aptCount = computed(() => (aptUpdates.value.ok ? aptUpdates.value.count : null))
+
+// 自定义监控项历史曲线
+const customHistory = ref([])
+const selectedCustomItem = ref('')
+const showCustomHistory = ref(false)
+async function loadCustomHistory(item) {
+  if (!name.value || !item) return
+  selectedCustomItem.value = item
+  showCustomHistory.value = true
+  try {
+    const token = localStorage.getItem('monitor_token')
+    const res = await fetch(`/api/servers/${name.value}/custom-history?item=${encodeURIComponent(item)}&hours=24`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    customHistory.value = data.map(p => ({ timestamp: p.timestamp, value: p.value }))
+  } catch (e) {
+    customHistory.value = []
+  }
+}
 
 const processes = computed(() => latest.value.processes?.top_cpu || [])
 const servicesList = computed(() => latest.value.services?.services || [])
@@ -395,12 +418,35 @@ onUnmounted(() => {
         </div>
         <div class="stat-label">{{ key }}</div>
         <div v-if="!item.ok" class="stat-sub err">{{ item.error || '获取失败' }}</div>
+        <button v-if="item.ok" class="stat-hist-btn" @click="loadCustomHistory(key)">📈 历史</button>
+      </div>
+      <!-- apt 更新提醒 -->
+      <div class="stat-card glass-card" v-if="aptCount !== null">
+        <div class="stat-value" :class="{ warning: aptCount > 0 }">
+          {{ aptCount }}
+        </div>
+        <div class="stat-label">待更新</div>
       </div>
       <div class="stat-card glass-card">
         <div class="stat-value load">{{ load1 }}</div>
         <div class="stat-label">负载 (1/5/15)</div>
         <div class="stat-sub">{{ load5 }} / {{ load15 }}</div>
       </div>
+    </div>
+
+    <!-- 自定义监控项历史曲线 -->
+    <div v-if="showCustomHistory && customHistory.length > 1" class="custom-history-area animate-in">
+      <MetricChart
+        :annotations="annotations"
+        :mark-areas="markAreas"
+        :title="`${selectedCustomItem} · 最近 24 小时`"
+        :data="customHistory"
+        :yKeys="['value']"
+        :yLabels="[selectedCustomItem]"
+        :colors="['#34c759']"
+        unit=""
+      />
+      <button class="hist-close" @click="showCustomHistory = false">收起历史 ✕</button>
     </div>
 
     <!-- Tabs -->
@@ -694,6 +740,39 @@ onUnmounted(() => {
 .stat-value.load { font-size: 24px; }
 .stat-value.err { color: var(--status-red); font-size: 20px; }
 .stat-sub.err { color: var(--status-red); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.stat-hist-btn {
+  margin-top: 4px;
+  padding: 2px 10px;
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  border-radius: 8px;
+  background: rgba(52, 199, 89, 0.08);
+  color: var(--status-green);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.stat-hist-btn:hover { background: rgba(52, 199, 89, 0.16); }
+.custom-history-area {
+  position: relative;
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.hist-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 5;
+}
+.hist-close:hover { color: var(--status-red); }
 
 .stat-label {
   font-size: 12px;

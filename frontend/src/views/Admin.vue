@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AlertStatsChart from '../components/AlertStatsChart.vue'
 import TrafficDailyChart from '../components/TrafficDailyChart.vue'
+import MetricChart from '../components/MetricChart.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -34,7 +35,7 @@ const rules = ref([])
 const events = ref([])
 const audits = ref([])
 const ruleForm = ref({ server_name: '*', metric: 'cpu', operator: '>', threshold: 80, enabled: true })
-const METRIC_OPTIONS = [
+const METRIC_OPTIONS = computed(() => [
   { value: 'cpu', label: 'CPU 使用率 %' },
   { value: 'memory', label: '内存使用率 %' },
   { value: 'disk', label: '磁盘使用率 %' },
@@ -45,8 +46,10 @@ const METRIC_OPTIONS = [
   { value: 'net_out', label: '网络出速率 B/s' },
   { value: 'cert_days', label: 'SSL 证书剩余天数' },
   { value: 'traffic_month_total_gb', label: '本月流量合计 GB' },
-  { value: 'traffic_used_percent', label: '本月流量额度使用 %' }
-]
+  { value: 'traffic_used_percent', label: '本月流量额度使用 %' },
+  { value: 'apt_updates', label: '待安装更新 个' },
+  ...customCmds.value.map(c => ({ value: `custom:${c.name}`, label: `自定义: ${c.name}（${c.server_name}）` }))
+])
 const OP_OPTIONS = ['>', '>=', '<', '<=']
 const testNotifying = ref(false)
 const testResult = ref('')
@@ -425,6 +428,19 @@ async function testProbe(p) {
     await loadProbes()
   } catch (e) { testMsg.value = e.message }
   finally { testingId.value = null }
+}
+
+// ── 探活延迟历史 ──
+const latencyData = ref([])
+const latencyRuleId = ref(null)
+const latencyTitle = ref('')
+async function loadLatency(p) {
+  latencyRuleId.value = p.id
+  latencyTitle.value = `${p.name} · 延迟趋势（24h）`
+  try {
+    const res = await api(`/api/probes/rules/${p.id}/latency?hours=24`)
+    latencyData.value = res.map(r => ({ timestamp: r.timestamp, value: r.latency }))
+  } catch (e) { latencyData.value = [] }
 }
 
 // ── 维护模式 ──
@@ -860,12 +876,24 @@ onMounted(async () => {
             <button class="link-btn" :disabled="testingId === p.id" @click="testProbe(p)">
               {{ testingId === p.id ? '测试中…' : '测试' }}
             </button>
+            <button class="link-btn" @click="loadLatency(p)">📈 延迟</button>
             <button class="link-btn" @click="startEdit(p)">编辑</button>
             <button class="link-btn" @click="toggleProbe(p)">{{ p.enabled ? '停用' : '启用' }}</button>
             <button class="link-btn danger" @click="deleteProbe(p)">删除</button>
           </span>
         </div>
         <div v-if="probes.length === 0" class="probe-row"><span class="muted-tag">还没有探活规则 · 点击右上角"添加规则"创建第一个</span></div>
+      </div>
+      <div v-if="latencyRuleId && latencyData.length > 1" class="latency-area">
+        <MetricChart
+          :title="latencyTitle"
+          :data="latencyData"
+          :yKeys="['value']"
+          :yLabels="['延迟']"
+          :colors="['#ff9500']"
+          unit="ms"
+        />
+        <button class="hist-close" @click="latencyRuleId = null">收起 ✕</button>
       </div>
     </div>
 
@@ -1007,7 +1035,7 @@ onMounted(async () => {
         <div v-for="l in loginLogs" :key="l.id" class="login-row">
           <span class="user-time">{{ formatTs(l.created_at) }}</span>
           <span class="user-email">{{ l.email }}</span>
-          <span class="log-ip"><i class="log-label">IP</i>{{ l.ip || '-' }}</span>
+          <span class="log-ip"><i class="log-label">IP</i>{{ l.ip || '-' }}<span v-if="l.region" class="ip-region">{{ l.region }}</span></span>
           <span class="log-ua" :title="l.user_agent || ''"><i class="log-label">设备</i>{{ fmtUA(l.user_agent) }}</span>
           <span class="log-result">
             <span class="login-dot" :class="{ ok: l.success }"></span>
@@ -1379,6 +1407,12 @@ onMounted(async () => {
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-region {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-left: 4px;
 }
 .log-ua {
   color: var(--text-tertiary);
@@ -1481,6 +1515,14 @@ onMounted(async () => {
 .probe-latency { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 .probe-uptime { color: var(--text-secondary); font-size: 12px; }
 .probe-actions { display: flex; gap: 10px; }
+.latency-area {
+  position: relative;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
 
 /* ── Agent 健康 ── */
 .agent-table { display: flex; flex-direction: column; }

@@ -496,7 +496,7 @@ def get_services_metrics() -> dict:
         return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
-AGENT_VERSION = "1.6.0"  # bump when agent behavior changes (shown in Admin health panel)
+AGENT_VERSION = "1.7.0"  # bump when agent behavior changes (shown in Admin health panel)
 
 
 # ── 自定义监控项（哪吒风格：agent 定期执行命令上报数值）────────────
@@ -600,6 +600,28 @@ def get_custom_metrics() -> dict:
     return out
 
 
+# ── apt 可升级包数量（安全更新提醒）───────────────────────────────
+_apt_cache: dict = {"ts": 0, "count": 0, "ok": False}
+APT_REFRESH_SECONDS = 3600  # 每小时查一次（apt list 有点慢）
+
+
+def get_apt_updates() -> dict:
+    """统计 apt 可升级包数量（Debian/Ubuntu；非 apt 系统返回 0）。"""
+    now = time.time()
+    if now - _apt_cache["ts"] < APT_REFRESH_SECONDS:
+        return dict(_apt_cache)
+    try:
+        proc = subprocess.run(
+            "apt list --upgradable 2>/dev/null | tail -n +2 | wc -l",
+            shell=True, capture_output=True, text=True, timeout=20,
+        )
+        count = int((proc.stdout or "0").strip() or 0)
+        _apt_cache.update(ts=now, count=count, ok=True)
+    except Exception:
+        _apt_cache.update(ts=now, count=0, ok=False)
+    return dict(_apt_cache)
+
+
 def collect_all() -> dict:
     """Collect all metrics and return as a single dict."""
     net = get_network_metrics()
@@ -619,6 +641,7 @@ def collect_all() -> dict:
         "services": get_services_metrics(),
         "certificates": get_certificates_metrics(),
         "custom": get_custom_metrics(),
+        "apt_updates": get_apt_updates(),
     }
 
 

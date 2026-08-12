@@ -14,7 +14,13 @@ VALID_METRICS = {
     "cpu", "memory", "disk", "load1", "load5", "load15",
     "net_in", "net_out",
     "cert_days", "traffic_month_total_gb", "traffic_used_percent",
+    "apt_updates",
 }
+
+
+def _valid_metric(metric: str) -> bool:
+    """内置指标或自定义监控项（custom:名称）。"""
+    return metric in VALID_METRICS or metric.startswith("custom:")
 VALID_OPS = {">", ">=", "<", "<="}
 
 
@@ -43,8 +49,8 @@ async def list_rules():
 
 @router.post("/rules", dependencies=[Depends(require_admin)])
 async def create_rule(req: RuleRequest):
-    if req.metric not in VALID_METRICS:
-        raise HTTPException(status_code=400, detail="指标必须是 " + ", ".join(sorted(VALID_METRICS)))
+    if not _valid_metric(req.metric):
+        raise HTTPException(status_code=400, detail="指标必须是 " + ", ".join(sorted(VALID_METRICS)) + " 或 custom:名称")
     if req.operator not in VALID_OPS:
         raise HTTPException(status_code=400, detail="运算符必须是 > >= < <=")
     db = await get_db()
@@ -67,8 +73,8 @@ async def update_rule(rule_id: int, req: RuleUpdate):
     if req.server_name is not None:
         fields["server_name"] = req.server_name
     if req.metric is not None:
-        if req.metric not in VALID_METRICS:
-            raise HTTPException(status_code=400, detail="指标必须是 " + ", ".join(sorted(VALID_METRICS)))
+        if not _valid_metric(req.metric):
+            raise HTTPException(status_code=400, detail="指标必须是 " + ", ".join(sorted(VALID_METRICS)) + " 或 custom:名称")
         fields["metric"] = req.metric
     if req.operator is not None:
         if req.operator not in VALID_OPS:
