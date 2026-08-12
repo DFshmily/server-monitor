@@ -97,6 +97,24 @@ const formatRate = (bytes) => formatBytes(bytes) + '/s'
 const servicesFailed = computed(() => latest.value.services?.failed ?? 0)
 const servicesTotal = computed(() => latest.value.services?.total ?? 0)
 
+// 本月流量: 按厂商账单时区月结, 每机独立配额
+const trafficMonth = computed(() => latest.value.traffic_month || {})
+const monthUsed = computed(() => trafficMonth.value.total_bytes || 0)
+const monthQuotaGB = computed(() => trafficMonth.value.quota_gb || 0)
+const monthUsedPct = computed(() => trafficMonth.value.used_percent ?? null)
+const monthPctClass = computed(() => {
+  const p = monthUsedPct.value
+  if (p === null || p === undefined) return ''
+  if (p > 90) return 'danger'
+  if (p > 70) return 'warning'
+  return ''
+})
+const monthTzLabel = computed(() => (trafficMonth.value.tz === 'UTC' ? 'UTC' : '北京时间'))
+const monthTip = computed(() => {
+  const m = trafficMonth.value.month || ''
+  return `本月流量统计(${m || ''}) · 按${monthTzLabel.value}月结，跨月自动归零`
+})
+
 const cpuCores = computed(() => latest.value.cpu?.cores ?? 0)
 
 const uptimeSeconds = computed(() => latest.value.system?.uptime_seconds ?? 0)
@@ -294,6 +312,22 @@ onMounted(() => {
             <div class="detail-value net-traffic" title="累计总流量，服务器重启后继续累积">
               <span class="up">↑ {{ formatBytes(netOutLifetime) }}</span>
               <span class="down">↓ {{ formatBytes(netInLifetime) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-item">
+          <div class="detail-icon">📅</div>
+          <div class="detail-content">
+            <div class="detail-label">本月流量 <span class="month-tag" :title="monthTip">{{ monthTzLabel }}</span></div>
+            <div class="detail-value">
+              {{ formatBytes(monthUsed) }}
+              <span v-if="monthQuotaGB > 0" class="month-pct" :class="monthPctClass" :title="`额度 ${monthQuotaGB} GB，已用 ${monthUsedPct}%`">
+                / {{ monthQuotaGB }} GB · {{ monthUsedPct }}%
+              </span>
+            </div>
+            <div v-if="monthQuotaGB > 0" class="month-bar" :title="`本月已用额度 ${monthUsedPct}%`">
+              <div class="month-bar-fill" :class="monthPctClass" :style="{ width: `${Math.min(monthUsedPct || 0, 100)}%` }"></div>
             </div>
           </div>
         </div>
@@ -710,6 +744,57 @@ onMounted(() => {
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* 本月流量 */
+.month-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 1px 6px;
+  margin-left: 4px;
+  vertical-align: 1px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.month-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--status-green, #34c759);
+}
+
+.month-pct.warning {
+  color: #ff9500;
+}
+
+.month-pct.danger {
+  color: #ff3b30;
+}
+
+.month-bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.month-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.month-bar-fill.warning {
+  background: linear-gradient(90deg, #ffb340, #ff9500);
+}
+
+.month-bar-fill.danger {
+  background: linear-gradient(90deg, #ff6b6b, #ff3b30);
 }
 
 .detail-value {
