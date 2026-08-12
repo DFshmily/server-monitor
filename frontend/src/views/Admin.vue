@@ -924,13 +924,22 @@ onMounted(async () => {
       </div>
       <div class="probe-table">
         <div class="probe-row header custom-row">
-          <span>服务器</span><span>名称</span><span>命令</span><span>间隔</span><span>状态</span><span>操作</span>
+          <span>服务器</span><span>名称</span><span>命令</span><span>间隔</span><span>最新结果</span><span>状态</span><span>操作</span>
         </div>
         <div v-for="c in customCmds" :key="c.id" class="probe-row custom-row">
           <span>{{ c.server_name }}</span>
           <span class="probe-name">{{ c.name }}</span>
           <span class="probe-target" :title="c.cmd">{{ c.cmd }}</span>
           <span class="probe-latency">{{ pickUnit(c.interval).v }}{{ pickUnit(c.interval).u === 's' ? '秒' : pickUnit(c.interval).u === 'm' ? '分钟' : '小时' }}</span>
+          <span class="custom-latest">
+            <template v-if="c.latest">
+              <span v-if="c.latest.ok" class="latest-ok">
+                {{ c.latest.value != null ? `${c.latest.value}${c.latest.unit || c.unit || ''}` : c.latest.raw }}
+              </span>
+              <span v-else class="latest-err" :title="c.latest.error">{{ c.latest.error || '执行失败' }}</span>
+            </template>
+            <span v-else class="muted-tag">未上报</span>
+          </span>
           <span>
             <span class="status-dot-mini" :class="{ on: c.enabled }"></span>
             {{ c.enabled ? '启用' : '停用' }}
@@ -1435,9 +1444,25 @@ onMounted(async () => {
   font-size: 13px;
   min-width: 0;
 }
-/* 自定义监控项：6 列布局（覆盖 probe-row 的 7 列；手机端 media query 仍生效） */
+/* 自定义监控项：7 列布局（覆盖 probe-row 默认；手机端 media query 仍生效） */
 .probe-row.custom-row {
-  grid-template-columns: 0.8fr 1fr 2.4fr 0.8fr 0.9fr 1.4fr;
+  grid-template-columns: 0.8fr 1fr 2fr 0.7fr 1fr 0.8fr 1.2fr;
+}
+.custom-latest { min-width: 0; }
+.latest-ok {
+  color: var(--status-green);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.latest-err {
+  color: var(--status-red);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
 }
 .probe-row.header {
   color: var(--text-tertiary);

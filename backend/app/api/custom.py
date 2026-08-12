@@ -1,4 +1,5 @@
 """Custom command monitors API: admin CRUD (agent pulls config via /api/agent/custom-config)."""
+import json
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,7 +40,21 @@ def _check_server(server_name: str):
 async def list_commands():
     db = await get_db()
     cur = await db.execute("SELECT * FROM custom_commands ORDER BY server_name, id")
-    return [dict(r) for r in await cur.fetchall()]
+    cmds = [dict(r) for r in await cur.fetchall()]
+    # 附带每台服务器最新上报的 custom 结果（来自 metrics_raw 最新一条）
+    latest_custom: dict[str, dict] = {}
+    for srv in VALID_SERVERS:
+        cur = await db.execute(
+            "SELECT data FROM metrics_raw WHERE server_name = ? ORDER BY timestamp DESC LIMIT 1",
+            (srv,),
+        )
+        row = await cur.fetchone()
+        if row:
+            data = json.loads(row["data"])
+            latest_custom[srv] = data.get("custom") or {}
+    for c in cmds:
+        c["latest"] = latest_custom.get(c["server_name"], {}).get(c["name"])
+    return cmds
 
 
 @router.post("", dependencies=[Depends(require_admin)])
