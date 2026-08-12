@@ -24,10 +24,22 @@ class ProbeRuleRequest(BaseModel):
 
 class ProbeRuleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
+    type: str | None = None
+    target: str | None = Field(default=None, min_length=1, max_length=512)
     expected: str | None = Field(default=None, max_length=256)
     interval: int | None = Field(default=None, ge=10, le=86400)
     timeout: int | None = Field(default=None, ge=1, le=30)
     enabled: bool | None = None
+
+
+def _validate_target(type_: str, target: str):
+    """校验更新后的 type/target 组合。"""
+    if type_ not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail=f"类型必须是 {', '.join(VALID_TYPES)}")
+    if type_ == "tcp" and ":" not in target:
+        raise HTTPException(status_code=400, detail="TCP 目标格式应为 host:port")
+    if type_ == "http" and not target.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="HTTP 目标应以 http:// 或 https:// 开头")
 
 
 def _validate_rule(req: ProbeRuleRequest):
@@ -79,10 +91,15 @@ async def create_rule(req: ProbeRuleRequest, admin: dict = Depends(require_admin
 async def update_rule(rule_id: int, req: ProbeRuleUpdate, admin: dict = Depends(require_admin)):
     db = await get_db()
     cur = await db.execute("SELECT * FROM probe_rules WHERE id = ?", (rule_id,))
-    if not await cur.fetchone():
+    rule = await cur.fetchone()
+    if not rule:
         raise HTTPException(status_code=404, detail="规则不存在")
+    # 取合并后的 type/target 做组合校验（任一变化都重新校验）
+    new_type = req.type if req.type is not None else rule["type"]
+    new_target = req.target if req.target is not None else rule["target"]
+    _validate_target(new_type, new_target)
     updates = {}
-    for col in ("name", "expected", "interval", "timeout", "enabled"):
+    for col in ("name", "type", "target", "expected", "interval", "timeout", "enabled"):
         val = getattr(req, col)
         if val is not None:
             updates[col] = val
@@ -90,6 +107,8 @@ async def update_rule(rule_id: int, req: ProbeRuleUpdate, admin: dict = Depends(
         sets = ", ".join(f"{c} = ?" for c in updates)
         await db.execute(f"UPDATE probe_rules SET {sets} WHERE id = ?", [*updates.values(), rule_id])
         await db.commit()
+        # 目标/间隔变了，清掉旧状态缓存，让下一次探测立即按新配置跑
+        probes.state.pop(rule_id, None)
         await audit_log(admin["email"], "update_probe", f"规则 {rule_id} 更新")
     return {"ok": True}
 

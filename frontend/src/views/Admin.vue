@@ -355,17 +355,34 @@ const fmtUptime = (p) => p.uptime_24h == null ? '暂无数据' : `${p.uptime_24h
 async function loadProbes() {
   try { probes.value = await api('/api/probes/rules') } catch (e) { error.value = e.message }
 }
-async function addProbe() {
+
+// ── 新增 / 编辑共用表单 ──
+const editingId = ref(null)
+function startEdit(p) {
+  probeForm.value = { name: p.name, type: p.type, target: p.target, expected: p.expected || '', interval: p.interval, timeout: p.timeout }
+  editingId.value = p.id
+  showProbeForm.value = true
+}
+function cancelEdit() {
+  editingId.value = null
+  probeForm.value = { name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 }
+  showProbeForm.value = false
+}
+async function saveProbe() {
   error.value = ''; success.value = ''
   if (!probeForm.value.name.trim() || !probeForm.value.target.trim()) {
     error.value = '请填写名称和目标'
     return
   }
   try {
-    await api('/api/probes/rules', { method: 'POST', body: JSON.stringify(probeForm.value) })
-    probeForm.value = { name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 }
-    showProbeForm.value = false
-    success.value = '✅ 探活规则已添加'
+    if (editingId.value) {
+      await api(`/api/probes/rules/${editingId.value}`, { method: 'PUT', body: JSON.stringify(probeForm.value) })
+      success.value = '✅ 探活规则已更新'
+    } else {
+      await api('/api/probes/rules', { method: 'POST', body: JSON.stringify(probeForm.value) })
+      success.value = '✅ 探活规则已添加'
+    }
+    cancelEdit()
     await loadProbes()
   } catch (e) { error.value = e.message }
 }
@@ -722,7 +739,7 @@ onMounted(async () => {
     <div class="glass-card section">
       <div class="section-head">
         <h3>🔍 服务探活</h3>
-        <button class="btn-secondary" @click="showProbeForm = !showProbeForm">
+        <button class="btn-secondary" @click="showProbeForm ? cancelEdit() : (showProbeForm = true)">
           {{ showProbeForm ? '收起' : '＋ 添加规则' }}
         </button>
       </div>
@@ -735,7 +752,8 @@ onMounted(async () => {
         <input v-model="probeForm.target" class="probe-input" placeholder="目标：https://… / host:port / IP / 域名" maxlength="512" />
         <input v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
         <input v-model.number="probeForm.interval" type="number" class="count-input" min="10" max="86400" title="探测间隔(秒)" placeholder="间隔s" />
-        <button class="btn-primary" @click="addProbe">添加</button>
+        <button class="btn-primary" @click="saveProbe">{{ editingId ? '保存修改' : '添加' }}</button>
+        <button v-if="editingId" class="btn-secondary" @click="cancelEdit">取消</button>
       </div>
       <div v-if="testMsg" class="test-result" style="display:block;margin-bottom:8px">{{ testMsg }}</div>
       <div class="probe-table">
@@ -758,6 +776,7 @@ onMounted(async () => {
             <button class="link-btn" :disabled="testingId === p.id" @click="testProbe(p)">
               {{ testingId === p.id ? '测试中…' : '测试' }}
             </button>
+            <button class="link-btn" @click="startEdit(p)">编辑</button>
             <button class="link-btn" @click="toggleProbe(p)">{{ p.enabled ? '停用' : '启用' }}</button>
             <button class="link-btn danger" @click="deleteProbe(p)">删除</button>
           </span>
