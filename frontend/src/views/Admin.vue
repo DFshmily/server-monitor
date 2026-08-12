@@ -442,7 +442,7 @@ async function loadAgentHealth() {
 }
 const fmtAge = (a) => a.online ? `${a.last_age} 秒前` : `${a.last_age} 秒前（离线）`
 
-const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark', serverchan: 'Server酱', wecom: '企业微信', dingtalk: '钉钉' }
+const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark' }
 
 onMounted(async () => {
   if (!auth.isAdmin()) {

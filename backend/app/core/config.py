@@ -25,13 +25,6 @@ BARK_KEY = os.environ.get("MONITOR_BARK_KEY", "")
 BARK_GROUP = os.environ.get("MONITOR_BARK_GROUP", "")      # optional push group
 BARK_DEVICE = os.environ.get("MONITOR_BARK_DEVICE", "")    # optional device token (rarely needed)
 
-# Alerts: Server酱 (WeChat push via sctapi.ftqq.com). Optional.
-SERVERCHAN_KEY = os.environ.get("MONITOR_SERVERCHAN_KEY", "")
-
-# Alerts: 企业微信 / 钉钉 group-bot webhooks. Optional.
-WECOM_WEBHOOK = os.environ.get("MONITOR_WECOM_WEBHOOK", "")
-DINGTALK_WEBHOOK = os.environ.get("MONITOR_DINGTALK_WEBHOOK", "")
-
 # Monthly traffic quota for traffic_used_percent alerts (GiB per server).
 # Oracle free tier e.g. 10 TiB outbound = 10240 GiB. 0 = disable quota check.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))

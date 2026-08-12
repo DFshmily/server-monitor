@@ -11,9 +11,6 @@ from app.core.config import (
     TELEGRAM_CHAT_ID,
     BARK_KEY,
     BARK_GROUP,
-    SERVERCHAN_KEY,
-    WECOM_WEBHOOK,
-    DINGTALK_WEBHOOK,
     TRAFFIC_QUOTA_GB,
 )
 from app.core.database import get_db
@@ -176,67 +173,6 @@ async def _send_bark(text: str) -> bool:
         return False
 
 
-async def _send_serverchan(text: str) -> bool:
-    """Server酱 (WeChat push): POST https://sctapi.ftqq.com/<key>.send"""
-    if not SERVERCHAN_KEY:
-        return False
-    title, _, body = text.partition("：")
-    if not body:
-        title, _, body = text.partition(":")
-    url = f"https://sctapi.ftqq.com/{SERVERCHAN_KEY}.send"
-    data = urllib.parse.urlencode({
-        "title": (title or "监控告警")[:32],
-        "desp": text[:4000],
-    }).encode()
-    try:
-        req = urllib.request.Request(url, data=data)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rj = json.loads(resp.read().decode() or "{}")
-            if rj.get("code") not in (None, 0):
-                logger.warning("Server酱 push rejected: %s", rj)
-                return False
-            return resp.status == 200
-    except Exception as e:
-        logger.warning("Server酱 push failed: %s", e)
-        return False
-
-
-async def _send_wecom(text: str) -> bool:
-    """企业微信群机器人 webhook."""
-    if not WECOM_WEBHOOK:
-        return False
-    body = json.dumps({"msgtype": "text", "text": {"content": text[:4000]}}).encode()
-    try:
-        req = urllib.request.Request(WECOM_WEBHOOK, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rj = json.loads(resp.read().decode() or "{}")
-            if rj.get("errcode") not in (None, 0):
-                logger.warning("企业微信 push rejected: %s", rj)
-                return False
-            return resp.status == 200
-    except Exception as e:
-        logger.warning("企业微信 push failed: %s", e)
-        return False
-
-
-async def _send_dingtalk(text: str) -> bool:
-    """钉钉群机器人 webhook."""
-    if not DINGTALK_WEBHOOK:
-        return False
-    body = json.dumps({"msgtype": "text", "text": {"content": text[:4000]}}).encode()
-    try:
-        req = urllib.request.Request(DINGTALK_WEBHOOK, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rj = json.loads(resp.read().decode() or "{}")
-            if rj.get("errcode") not in (None, 0):
-                logger.warning("钉钉 push rejected: %s", rj)
-                return False
-            return resp.status == 200
-    except Exception as e:
-        logger.warning("钉钉 push failed: %s", e)
-        return False
-
-
 async def _notify(text: str) -> dict:
     """Send to every configured channel. Returns {channel: ok}."""
     results = {}
@@ -244,12 +180,6 @@ async def _notify(text: str) -> dict:
         results["telegram"] = await _send_telegram(text)
     if BARK_KEY:
         results["bark"] = await _send_bark(text)
-    if SERVERCHAN_KEY:
-        results["serverchan"] = await _send_serverchan(text)
-    if WECOM_WEBHOOK:
-        results["wecom"] = await _send_wecom(text)
-    if DINGTALK_WEBHOOK:
-        results["dingtalk"] = await _send_dingtalk(text)
     if not results:
         logger.info("No notification channel configured, alert not pushed: %s", text[:80])
     return results

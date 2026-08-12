@@ -15,7 +15,7 @@ import time
 
 SRC = os.environ.get("MONITOR_DB", "/var/lib/server-monitor/data.db")
 BACKUP_DIR = "/var/lib/server-monitor/backups"
-KEEP = 14  # 保留最近 14 份，更早的自动删除
+KEEP = 1  # 只保留最近 1 份，更早的自动删除
 
 
 def backup() -> str:
