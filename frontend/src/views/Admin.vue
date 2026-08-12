@@ -767,6 +767,8 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .manual-row {
@@ -1044,6 +1046,8 @@ onMounted(async () => {
 
 @media (max-width: 720px) {
   .logs-grid { grid-template-columns: 1fr; }
+  /* 手机端：服务器名与月流量汇总纵向排列，文字换行不溢出 */
+  .traffic-server-head { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
 
 .log-item {
