@@ -1526,6 +1526,30 @@ onMounted(async () => {
 .maint-range { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
 .maint-note { color: var(--text-tertiary); font-size: 12px; flex: 1; min-width: 80px; }
 
+/* 手机端：自定义监控项专用卡片布局（覆盖通用 probe-row 手机规则） */
+@media (max-width: 720px) {
+  .probe-row.custom-row {
+    grid-template-columns: 1fr auto;
+    row-gap: 4px;
+    padding: 12px 8px;
+  }
+  .probe-row.custom-row.header { display: none; }
+  .probe-row.custom-row > span:nth-child(1) { grid-column: 1; grid-row: 1; font-weight: 600; }
+  .probe-row.custom-row > span:nth-child(6) { grid-column: 2; grid-row: 1; justify-self: end; }
+  .probe-row.custom-row > span:nth-child(2) {
+    grid-column: 1 / -1; grid-row: 2;
+    font-size: 15px; font-weight: 700;
+    white-space: normal; overflow: visible; text-overflow: clip;
+  }
+  .probe-row.custom-row > span:nth-child(3) {
+    grid-column: 1 / -1; grid-row: 3;
+    white-space: normal; word-break: break-all; overflow: visible;
+  }
+  .probe-row.custom-row > span:nth-child(4) { grid-column: 1; grid-row: 4; }
+  .probe-row.custom-row > span:nth-child(5) { grid-column: 2; grid-row: 4; justify-self: end; }
+  .probe-row.custom-row > span:nth-child(7) { grid-column: 1 / -1; grid-row: 5; }
+}
+
 /* 手机端：探活/维护区块纵向排列 */
 @media (max-width: 720px) {
   .probe-row { grid-template-columns: 1fr 1fr; row-gap: 4px; padding: 12px 8px; }
