@@ -738,7 +738,8 @@ onMounted(async () => {
 /* 本月流量 · 近30天 */
 .traffic-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  /* min(100%, 420px)：窄屏时收缩到容器宽，避免卡片溢出屏幕 */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
   gap: 20px;
 }
 
