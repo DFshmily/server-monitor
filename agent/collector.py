@@ -23,16 +23,24 @@ _cert_cache: dict = {}
 # 每台服务器独立配置(环境变量), 规则阈值可在面板按服务器定制.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
 
+# 月度结算时区, 按厂商账单口径独立配置:
+#   MONITOR_TRAFFIC_TZ=utc       -> UTC 月结 (对齐 Oracle 云账单)
+#   MONITOR_TRAFFIC_TZ=shanghai  -> 北京时间月结 (对齐腾讯云/国内厂商, 默认)
+TRAFFIC_TZ = os.environ.get("MONITOR_TRAFFIC_TZ", "").strip().lower()
+
 # 虚拟网卡不计入流量统计: docker 桥接/veth/隧道会把同一份流量重复计数,
 # 云厂商计费只认物理网卡。前缀匹配, lo 恒排除。
 VIRTUAL_IFACE_PREFIXES = ("docker", "veth", "br-", "virbr", "tun", "tap", "wg", "tailscale", "kube")
 
 
 def _month_key() -> str:
-    """自然月标识, 按北京时间(UTC+8)结算, 北京 0 点跨月重置."""
+    """自然月标识, 按本机配置的结算时区计算, 跨月自动重置."""
     import datetime
-    bj = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
-    return bj.strftime("%Y-%m")
+    if TRAFFIC_TZ == "utc":
+        tz = datetime.timezone.utc
+    else:
+        tz = datetime.timezone(datetime.timedelta(hours=8))  # 默认北京时间
+    return datetime.datetime.now(tz).strftime("%Y-%m")
 
 
 def _load_traffic_state() -> dict:
@@ -272,6 +280,7 @@ def get_network_metrics() -> dict:
         "total_connections": len(connections),
         "traffic_month": {
             "month": month,
+            "tz": "UTC" if TRAFFIC_TZ == "utc" else "Asia/Shanghai",
             "recv_bytes": month_recv,
             "sent_bytes": month_sent,
             "total_bytes": month_recv + month_sent,
