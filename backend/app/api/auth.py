@@ -216,6 +216,7 @@ async def login(req: LoginRequest, request: Request):
     ip = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
     if not ip or ip == "unknown":
         ip = request.client.host if request.client else ""
+    ua = (request.headers.get("user-agent") or "")[:200]
 
     # ── Brute-force protection: 5 failed attempts per email => 15 min lockout ──
     cur = await db.execute(
@@ -225,7 +226,7 @@ async def login(req: LoginRequest, request: Request):
     row = await cur.fetchone()
     if row and row["n"] >= 5:
         wait = 900 - (now - row["last"])
-        raise HTTPException(status_code=429, detail=f"尝试次数过多，请 {max(wait, 1)} 秒后再试")
+        raise HTTPException(status_code=429, detail=f"该账号失败次数过多，已临时锁定，请 {max(wait, 1)} 秒后再试")
 
     # ── Brute-force protection: 10 failed attempts per IP => 15 min lockout ──
     # Catches password spraying across many accounts from one address.
@@ -237,14 +238,18 @@ async def login(req: LoginRequest, request: Request):
         prow = await cur.fetchone()
         if prow and prow["n"] >= 10:
             wait = 900 - (now - prow["last"])
-            raise HTTPException(status_code=429, detail=f"该网络地址尝试过多，请 {max(wait, 1)} 秒后再试")
+            raise HTTPException(status_code=429, detail=f"该网络地址尝试次数过多，已临时锁定，请 {max(wait, 1)} 秒后再试")
 
     cur = await db.execute("SELECT * FROM users WHERE email = ?", (email,))
     row = await cur.fetchone()
     ok = bool(row and verify_password(req.password, row["password_hash"]))
     await db.execute(
-        "INSERT INTO login_attempts (email, success, created_at, ip) VALUES (?, ?, ?, ?)",
-        (email, int(ok), now, ip),
+        "INSERT INTO login_attempts (email, success, created_at, ip, user_agent) VALUES (?, ?, ?, ?, ?)",
+        (email, int(ok), now, ip, ua),
+    )
+    # 顺手清理 30 天前的旧登录记录（有索引，代价极小）
+    await db.execute(
+        "DELETE FROM login_attempts WHERE created_at < ?", (now - 30 * 86400,)
     )
     await db.commit()
 
@@ -347,6 +352,33 @@ async def list_invites():
 
 
 # ── Admin: users ──────────────────────────────────────────────────
+@router.get("/login-logs", dependencies=[Depends(require_admin)])
+async def list_login_logs(limit: int = 20, offset: int = 0, email: str = "", success: int = -1):
+    """Recent login attempts: who, when, from which IP, success/failure."""
+    db = await get_db()
+    where, params = [], []
+    if email.strip():
+        where.append("email LIKE ?")
+        params.append(f"%{email.strip()}%")
+    if success in (0, 1):
+        where.append("success = ?")
+        params.append(success)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    cur = await db.execute(
+        f"SELECT COUNT(*) as n FROM login_attempts{where_sql}", params
+    )
+    total = (await cur.fetchone())["n"]
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    cur = await db.execute(
+        f"SELECT id, email, success, created_at, ip, user_agent FROM login_attempts{where_sql} "
+        "ORDER BY id DESC LIMIT ? OFFSET ?",
+        params + [limit, offset],
+    )
+    items = [dict(r) for r in await cur.fetchall()]
+    return {"total": total, "items": items}
+
+
 @router.get("/users", dependencies=[Depends(require_admin)])
 async def list_users():
     db = await get_db()

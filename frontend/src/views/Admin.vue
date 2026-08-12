@@ -298,6 +298,42 @@ function formatTime(ts) {
   return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
 }
 
+// ── 登录日志 ──
+const loginLogs = ref([])
+const logTotal = ref(0)
+const logPage = ref(1)
+const LOG_PAGE_SIZE = 20
+const logFilter = ref('all')     // all | success | fail
+const logEmail = ref('')
+const logTotalPages = computed(() => Math.max(1, Math.ceil(logTotal.value / LOG_PAGE_SIZE)))
+
+async function loadLoginLogs() {
+  const params = new URLSearchParams({ limit: LOG_PAGE_SIZE, offset: (logPage.value - 1) * LOG_PAGE_SIZE })
+  if (logFilter.value === 'success') params.set('success', 1)
+  if (logFilter.value === 'fail') params.set('success', 0)
+  if (logEmail.value.trim()) params.set('email', logEmail.value.trim())
+  try {
+    const res = await api(`/api/auth/login-logs?${params}`)
+    loginLogs.value = res.items
+    logTotal.value = res.total
+  } catch (e) { error.value = e.message }
+}
+function filterLogs() {
+  logPage.value = 1
+  loadLoginLogs()
+}
+function prevLogPage() {
+  if (logPage.value > 1) { logPage.value--; loadLoginLogs() }
+}
+function nextLogPage() {
+  if (logPage.value < logTotalPages.value) { logPage.value++; loadLoginLogs() }
+}
+function fmtUA(ua) {
+  if (!ua) return '-'
+  const icon = /mobile|iphone|android|ipad/i.test(ua) ? '📱' : '💻'
+  return `${icon} ${ua.slice(0, 60)}${ua.length > 60 ? '…' : ''}`
+}
+
 onMounted(async () => {
   if (!auth.isAdmin()) {
     router.push('/')
@@ -310,6 +346,7 @@ onMounted(async () => {
     await loadRules()
     await loadEvents()
     await loadAudits()
+    await loadLoginLogs()
   } catch (e) {
     error.value = e.message
   }
@@ -561,6 +598,45 @@ onMounted(async () => {
           </div>
           <div v-if="audits.length === 0" class="muted-tag">暂无操作记录</div>
         </div>
+      </div>
+    </div>
+
+    <!-- 登录日志 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>🔐 登录日志</h3>
+        <button class="btn-secondary" @click="loadLoginLogs">🔄 刷新</button>
+      </div>
+      <div class="section-hint">最近 30 天登录记录 · 同一账号连续 5 次失败锁定 15 分钟，同一 IP 累计 10 次失败锁定 15 分钟</div>
+      <div class="log-filter-row">
+        <select v-model="logFilter" class="count-input" style="width:110px" @change="filterLogs">
+          <option value="all">全部</option>
+          <option value="success">✅ 成功</option>
+          <option value="fail">❌ 失败</option>
+        </select>
+        <input v-model="logEmail" class="log-search" placeholder="按邮箱搜索…" @keyup.enter="filterLogs" />
+        <button class="btn-secondary" @click="filterLogs">搜索</button>
+      </div>
+      <div class="login-table">
+        <div class="login-row header">
+          <span style="width:120px">时间</span><span>邮箱</span><span>IP</span><span>设备</span><span style="width:56px">结果</span>
+        </div>
+        <div v-for="l in loginLogs" :key="l.id" class="login-row">
+          <span class="user-time">{{ formatTs(l.created_at) }}</span>
+          <span class="user-email">{{ l.email }}</span>
+          <span class="log-ip">{{ l.ip || '-' }}</span>
+          <span class="log-ua" :title="l.user_agent || ''">{{ fmtUA(l.user_agent) }}</span>
+          <span>
+            <span class="login-dot" :class="{ ok: l.success }"></span>
+            {{ l.success ? '成功' : '失败' }}
+          </span>
+        </div>
+        <div v-if="loginLogs.length === 0" class="login-row"><span class="muted-tag">暂无登录记录</span></div>
+      </div>
+      <div class="log-pager">
+        <button class="btn-secondary" :disabled="logPage <= 1" @click="prevLogPage">← 上一页</button>
+        <span class="muted-tag">{{ logTotal === 0 ? '0 条记录' : `第 ${logPage} / ${logTotalPages} 页 · 共 ${logTotal} 条` }}</span>
+        <button class="btn-secondary" :disabled="logPage >= logTotalPages" @click="nextLogPage">下一页 →</button>
       </div>
     </div>
 
@@ -857,6 +933,84 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+}
+
+/* ── 登录日志 ── */
+.log-filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.log-search {
+  flex: 1;
+  min-width: 160px;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.log-search:focus {
+  border-color: var(--purple-500, #8b5cf6);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+}
+.login-table {
+  display: flex;
+  flex-direction: column;
+}
+.login-row {
+  display: grid;
+  grid-template-columns: 120px 1.6fr 1fr 1.6fr 56px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+  min-width: 0;
+}
+.login-row.header {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 12px;
+}
+.login-row.header span:last-child,
+.login-row > span:last-child {
+  text-align: right;
+}
+.log-ip {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-ua {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.login-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-red);
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.login-dot.ok { background: var(--status-green); }
+.log-pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  gap: 8px;
 }
 
 @media (max-width: 720px) {

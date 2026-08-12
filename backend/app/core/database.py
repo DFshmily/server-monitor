@@ -94,9 +94,12 @@ async def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL,
             success INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            ip TEXT,
+            user_agent TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email, created_at);
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_ts ON login_attempts(created_at);
 
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +114,8 @@ async def init_db() -> None:
     cols = [r["name"] for r in await (await db.execute("PRAGMA table_info(login_attempts)")).fetchall()]
     if "ip" not in cols:
         await db.execute("ALTER TABLE login_attempts ADD COLUMN ip TEXT")
+    if "user_agent" not in cols:
+        await db.execute("ALTER TABLE login_attempts ADD COLUMN user_agent TEXT")
     await db.commit()
 
 
