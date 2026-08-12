@@ -494,12 +494,16 @@ def get_services_metrics() -> dict:
         return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
+AGENT_VERSION = "1.4.0"  # bump when agent behavior changes (shown in Admin health panel)
+
+
 def collect_all() -> dict:
     """Collect all metrics and return as a single dict."""
     net = get_network_metrics()
     return {
         "timestamp": int(time.time()),
         "hostname": socket.gethostname(),
+        "agent_version": AGENT_VERSION,
         "cpu": get_cpu_metrics(),
         "memory": get_memory_metrics(),
         "disk": get_disk_metrics(),

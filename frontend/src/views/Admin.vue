@@ -58,7 +58,7 @@ async function testNotify() {
   try {
     const res = await api('/api/alerts/test', { method: 'POST' })
     if (res.sent && res.sent.length > 0) {
-      const parts = res.sent.map(c => c === 'telegram' ? 'Telegram' : 'Bark')
+      const parts = res.sent.map(c => CHANNEL_NAMES[c] || c)
       testResult.value = `✅ 已发送到 ${parts.join(' + ')}${res.failed?.length ? `（失败: ${res.failed.join(', ')}）` : ''}`
     } else {
       testResult.value = res.message || '未配置通知渠道'
@@ -335,6 +335,115 @@ function fmtUA(ua) {
   return `${icon} ${ua}`
 }
 
+// ── 服务探活 ──
+const probes = ref([])
+const probeForm = ref({ name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 })
+const showProbeForm = ref(false)
+const testingId = ref(null)
+const testMsg = ref('')
+const PROBE_TYPES = [
+  { value: 'http', label: 'HTTP(S)' },
+  { value: 'tcp', label: 'TCP 端口' },
+  { value: 'ping', label: 'Ping' },
+  { value: 'dns', label: 'DNS 解析' }
+]
+const probeIcon = (t) => t === 'http' ? '🌐' : t === 'tcp' ? '🔌' : t === 'ping' ? '📡' : '🧭'
+const probeLatency = (p) => p.current?.latency_ms != null ? `${p.current.latency_ms} ms` : '-'
+const probeLast = (p) => p.current?.ts ? formatTs(p.current.ts) : '-'
+const fmtUptime = (p) => p.uptime_24h == null ? '暂无数据' : `${p.uptime_24h}% · ${p.checks_24h} 次`
+
+async function loadProbes() {
+  try { probes.value = await api('/api/probes/rules') } catch (e) { error.value = e.message }
+}
+async function addProbe() {
+  error.value = ''; success.value = ''
+  if (!probeForm.value.name.trim() || !probeForm.value.target.trim()) {
+    error.value = '请填写名称和目标'
+    return
+  }
+  try {
+    await api('/api/probes/rules', { method: 'POST', body: JSON.stringify(probeForm.value) })
+    probeForm.value = { name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 }
+    showProbeForm.value = false
+    success.value = '✅ 探活规则已添加'
+    await loadProbes()
+  } catch (e) { error.value = e.message }
+}
+async function toggleProbe(p) {
+  try {
+    await api(`/api/probes/rules/${p.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !p.enabled }) })
+    await loadProbes()
+  } catch (e) { error.value = e.message }
+}
+async function deleteProbe(p) {
+  error.value = ''; success.value = ''
+  try {
+    await api(`/api/probes/rules/${p.id}`, { method: 'DELETE' })
+    success.value = `❌ 已删除探活规则 ${p.name}`
+    await loadProbes()
+  } catch (e) { error.value = e.message }
+}
+async function testProbe(p) {
+  testingId.value = p.id
+  testMsg.value = ''
+  try {
+    const res = await api(`/api/probes/rules/${p.id}/test`, { method: 'POST' })
+    testMsg.value = `🧪 ${p.name}：${res.ok ? '✅ 可达' : '❌ 不可达'} · ${res.message || ''}`
+    await loadProbes()
+  } catch (e) { testMsg.value = e.message }
+  finally { testingId.value = null }
+}
+
+// ── 维护模式 ──
+const maintenance = ref([])
+const maintForm = ref({ server_name: '*', start_at: '', end_at: '', note: '' })
+const showMaintForm = ref(false)
+const toLocalInput = (ts) => {
+  const ms = (ts > 1e12 ? ts : ts * 1000) + 8 * 3600 * 1000
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+}
+const fromLocalInput = (v) => {
+  if (!v) return 0
+  return Math.floor(new Date(v + ':00').getTime() / 1000) - 8 * 3600
+}
+async function loadMaintenance() {
+  try { maintenance.value = await api('/api/alerts/maintenance') } catch (e) { error.value = e.message }
+}
+async function addMaintenance() {
+  error.value = ''; success.value = ''
+  const start = fromLocalInput(maintForm.value.start_at)
+  const end = fromLocalInput(maintForm.value.end_at)
+  if (!start || !end) { error.value = '请选择开始和结束时间'; return }
+  try {
+    await api('/api/alerts/maintenance', { method: 'POST', body: JSON.stringify({
+      server_name: maintForm.value.server_name, start_at: start, end_at: end, note: maintForm.value.note
+    }) })
+    maintForm.value = { server_name: '*', start_at: '', end_at: '', note: '' }
+    showMaintForm.value = false
+    success.value = '✅ 维护窗口已创建'
+    await loadMaintenance()
+  } catch (e) { error.value = e.message }
+}
+async function deleteMaintenance(w) {
+  try {
+    await api(`/api/alerts/maintenance/${w.id}`, { method: 'DELETE' })
+    await loadMaintenance()
+  } catch (e) { error.value = e.message }
+}
+const maintStatus = (w) => w.active ? '🔴 生效中' : w.expired ? '已结束' : '待生效'
+const fmtRange = (w) => `${formatTs(w.start_at)} ~ ${formatTs(w.end_at)}`
+
+// ── Agent 健康 ──
+const agentHealth = ref([])
+async function loadAgentHealth() {
+  try { agentHealth.value = await api('/api/agents-health') } catch (e) { error.value = e.message }
+}
+const fmtAge = (a) => a.online ? `${a.last_age} 秒前` : `${a.last_age} 秒前（离线）`
+
+const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark', serverchan: 'Server酱', wecom: '企业微信', dingtalk: '钉钉' }
+
 onMounted(async () => {
   if (!auth.isAdmin()) {
     router.push('/')
@@ -348,6 +457,9 @@ onMounted(async () => {
     await loadEvents()
     await loadAudits()
     await loadLoginLogs()
+    await loadProbes()
+    await loadMaintenance()
+    await loadAgentHealth()
   } catch (e) {
     error.value = e.message
   }
@@ -599,6 +711,109 @@ onMounted(async () => {
           </div>
           <div v-if="audits.length === 0" class="muted-tag">暂无操作记录</div>
         </div>
+      </div>
+    </div>
+
+    <!-- 服务探活 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>🔍 服务探活</h3>
+        <button class="btn-secondary" @click="showProbeForm = !showProbeForm">
+          {{ showProbeForm ? '收起' : '＋ 添加规则' }}
+        </button>
+      </div>
+      <div class="section-hint">从本机探测 HTTP / TCP 端口 / Ping / DNS，判断服务是否"用户可达"· 失败推送通知，恢复自动提醒（30 分钟冷却）</div>
+      <div v-if="showProbeForm" class="probe-form">
+        <input v-model="probeForm.name" class="probe-input" placeholder="名称，如：面板网站" maxlength="64" />
+        <select v-model="probeForm.type" class="count-input" style="width:110px">
+          <option v-for="t in PROBE_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+        </select>
+        <input v-model="probeForm.target" class="probe-input" placeholder="目标：https://… / host:port / IP / 域名" maxlength="512" />
+        <input v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
+        <input v-model.number="probeForm.interval" type="number" class="count-input" min="10" max="86400" title="探测间隔(秒)" placeholder="间隔s" />
+        <button class="btn-primary" @click="addProbe">添加</button>
+      </div>
+      <div v-if="testMsg" class="test-result" style="display:block;margin-bottom:8px">{{ testMsg }}</div>
+      <div class="probe-table">
+        <div class="probe-row header">
+          <span>名称</span><span>类型</span><span>目标</span><span>状态</span><span>延迟</span><span>24h 可用率</span><span>操作</span>
+        </div>
+        <div v-for="p in probes" :key="p.id" class="probe-row">
+          <span class="probe-name">{{ p.name }}</span>
+          <span class="probe-type">{{ probeIcon(p.type) }} {{ p.type.toUpperCase() }}</span>
+          <span class="probe-target" :title="p.target">{{ p.target }}</span>
+          <span>
+            <span class="status-dot-mini" :class="{ on: p.current?.ok }"></span>
+            <span v-if="!p.current">待测</span>
+            <span v-else>{{ p.current.ok ? '正常' : '异常' }}</span>
+            <span v-if="p.current" class="muted-tag"> · {{ probeLast(p) }}</span>
+          </span>
+          <span class="probe-latency">{{ probeLatency(p) }}</span>
+          <span class="probe-uptime">{{ fmtUptime(p) }}</span>
+          <span class="probe-actions">
+            <button class="link-btn" :disabled="testingId === p.id" @click="testProbe(p)">
+              {{ testingId === p.id ? '测试中…' : '测试' }}
+            </button>
+            <button class="link-btn" @click="toggleProbe(p)">{{ p.enabled ? '停用' : '启用' }}</button>
+            <button class="link-btn danger" @click="deleteProbe(p)">删除</button>
+          </span>
+        </div>
+        <div v-if="probes.length === 0" class="probe-row"><span class="muted-tag">还没有探活规则 · 点击右上角"添加规则"创建第一个</span></div>
+      </div>
+    </div>
+
+    <!-- Agent 健康 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>🤖 Agent 健康</h3>
+        <button class="btn-secondary" @click="loadAgentHealth">🔄 刷新</button>
+      </div>
+      <div class="section-hint">每台服务器的数据上报健康度：版本 / 最后上报时间 / 推送频率</div>
+      <div class="agent-table">
+        <div class="agent-row header">
+          <span>服务器</span><span>版本</span><span>最后上报</span><span>10分钟推送</span><span>状态</span>
+        </div>
+        <div v-for="a in agentHealth" :key="a.server_name" class="agent-row">
+          <span class="user-email">{{ a.server_name }}</span>
+          <span>{{ a.version || '-' }}</span>
+          <span class="user-time">{{ fmtAge(a) }}</span>
+          <span>{{ a.pushes_10min }} 次</span>
+          <span>
+            <span class="status-dot-mini" :class="{ on: a.online }"></span>
+            {{ a.online ? '在线' : '离线' }}
+          </span>
+        </div>
+        <div v-if="agentHealth.length === 0" class="agent-row"><span class="muted-tag">暂无数据</span></div>
+      </div>
+    </div>
+
+    <!-- 维护模式 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>🛠 维护模式</h3>
+        <button class="btn-secondary" @click="showMaintForm = !showMaintForm">
+          {{ showMaintForm ? '收起' : '＋ 新建窗口' }}
+        </button>
+      </div>
+      <div class="section-hint">维护窗口内对应服务器的告警 / 离线通知静默（事件仍会记录）</div>
+      <div v-if="showMaintForm" class="maint-form">
+        <select v-model="maintForm.server_name" class="count-input" style="width:110px">
+          <option value="*">全部服务器</option>
+          <option value="oracle">oracle</option>
+          <option value="tencent">tencent</option>
+        </select>
+        <input v-model="maintForm.start_at" type="datetime-local" class="probe-input" />
+        <input v-model="maintForm.end_at" type="datetime-local" class="probe-input" />
+        <input v-model="maintForm.note" class="probe-input" placeholder="备注，如：重装系统" maxlength="256" />
+        <button class="btn-primary" @click="addMaintenance">创建</button>
+      </div>
+      <div v-if="maintenance.length === 0" class="muted-tag" style="padding:8px 0">暂无维护窗口</div>
+      <div v-for="w in maintenance" :key="w.id" class="maint-item">
+        <span class="maint-status" :class="{ active: w.active }">{{ maintStatus(w) }}</span>
+        <span class="maint-server">{{ w.server_name === '*' ? '全部服务器' : w.server_name }}</span>
+        <span class="maint-range">{{ fmtRange(w) }}</span>
+        <span class="maint-note">{{ w.note || '' }}</span>
+        <button class="delete-btn" @click="deleteMaintenance(w)">删除</button>
       </div>
     </div>
 
@@ -1022,6 +1237,117 @@ onMounted(async () => {
   align-items: center;
   margin-top: 14px;
   gap: 8px;
+}
+
+/* ── 服务探活 ── */
+.probe-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.probe-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.probe-input:focus {
+  border-color: var(--purple-500, #8b5cf6);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+}
+.probe-table { display: flex; flex-direction: column; }
+.probe-row {
+  display: grid;
+  grid-template-columns: 1.1fr 0.7fr 1.6fr 1.2fr 0.7fr 0.9fr 1.3fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+  min-width: 0;
+}
+.probe-row.header {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 12px;
+}
+.probe-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.probe-target {
+  color: var(--text-secondary);
+  font-family: 'SF Mono', monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.probe-latency { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.probe-uptime { color: var(--text-secondary); font-size: 12px; }
+.probe-actions { display: flex; gap: 10px; }
+
+/* ── Agent 健康 ── */
+.agent-table { display: flex; flex-direction: column; }
+.agent-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.4fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+}
+.agent-row.header {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* ── 维护模式 ── */
+.maint-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.maint-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.maint-status {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.maint-status.active { color: var(--status-red); }
+.maint-server { font-weight: 600; }
+.maint-range { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
+.maint-note { color: var(--text-tertiary); font-size: 12px; flex: 1; min-width: 80px; }
+
+/* 手机端：探活/维护区块纵向排列 */
+@media (max-width: 720px) {
+  .probe-row { grid-template-columns: 1fr 1fr; row-gap: 4px; padding: 12px 8px; }
+  .probe-row.header { display: none; }
+  .probe-row > span:nth-child(1) { grid-column: 1 / -1; grid-row: 1; }
+  .probe-row > span:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .probe-row > span:nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
+  .probe-row > span:nth-child(3) { grid-column: 1 / -1; grid-row: 3; white-space: normal; word-break: break-all; }
+  .probe-row > span:nth-child(5) { grid-column: 1; grid-row: 4; }
+  .probe-row > span:nth-child(6) { grid-column: 2; grid-row: 4; justify-self: end; }
+  .probe-row > span:nth-child(7) { grid-column: 1 / -1; grid-row: 5; }
+  .agent-row { grid-template-columns: 1fr 1fr; row-gap: 4px; padding: 12px 8px; }
+  .agent-row.header { display: none; }
+  .maint-item { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
 
 /* 手机端：每条记录变卡片，字段逐行完整显示 */

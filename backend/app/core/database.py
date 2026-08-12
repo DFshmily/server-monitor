@@ -109,6 +109,39 @@ async def init_db() -> None:
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(created_at);
+
+        CREATE TABLE IF NOT EXISTS probe_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,              -- http | tcp | ping | dns
+            target TEXT NOT NULL,            -- URL / host:port / host / domain
+            expected TEXT DEFAULT '',        -- http 关键词匹配(可选)
+            interval INTEGER NOT NULL DEFAULT 60,
+            timeout INTEGER NOT NULL DEFAULT 10,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS probe_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id INTEGER NOT NULL,
+            ok INTEGER NOT NULL DEFAULT 0,
+            latency_ms REAL,
+            status_code INTEGER,
+            message TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_probe_results_rule ON probe_results(rule_id, id);
+
+        CREATE TABLE IF NOT EXISTS maintenance_windows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_name TEXT NOT NULL DEFAULT '*',
+            start_at INTEGER NOT NULL,
+            end_at INTEGER NOT NULL,
+            note TEXT DEFAULT '',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_maint_time ON maintenance_windows(start_at, end_at);
     """)
     # ── Migrations (idempotent ALTERs for schema evolution) ──
     cols = [r["name"] for r in await (await db.execute("PRAGMA table_info(login_attempts)")).fetchall()]

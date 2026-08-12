@@ -1,0 +1,8 @@
+[Unit]
+Description=Server Monitor SQLite 数据库备份
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/bin/python3 /home/ubuntu/server-monitor/deploy/backup_db.py

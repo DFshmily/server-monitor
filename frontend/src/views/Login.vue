@@ -280,6 +280,8 @@ onUnmounted(() => {
           {{ mode === 'login' ? '用邀请码注册' : '去登录' }}
         </a>
       </div>
+
+      <div class="brand-line">Server Monitor · 自建监控面板</div>
     </div>
   </div>
 </template>
@@ -372,6 +374,19 @@ onUnmounted(() => {
   animation: cardIn 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* 顶部渐变光条 */
+.auth-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.9), rgba(125, 211, 252, 0.9), transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(167, 139, 250, 0.5);
+}
+
 @keyframes cardIn {
   from { transform: translateY(28px) scale(0.97); opacity: 0; }
   to { transform: translateY(0) scale(1); opacity: 1; }
@@ -386,14 +401,18 @@ onUnmounted(() => {
 .auth-title {
   font-size: 26px;
   font-weight: 700;
-  color: #fff;
   margin: 0 0 10px;
-  letter-spacing: 1px;
-  text-shadow: 0 2px 20px rgba(124, 58, 237, 0.4);
+  letter-spacing: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  /* 渐变文字 */
+  background: linear-gradient(90deg, #ffffff 0%, #e9d5ff 45%, #bae6fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 16px rgba(139, 92, 246, 0.35));
 }
 
 .auth-title :deep(.inline-globe) {
@@ -439,9 +458,15 @@ onUnmounted(() => {
 }
 
 .input-wrap:focus-within {
-  border-color: rgba(139, 92, 246, 0.6);
+  border-color: rgba(167, 139, 250, 0.65);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15), 0 0 24px rgba(139, 92, 246, 0.15);
+}
+
+.input-wrap:focus-within .input-icon {
+  color: #a78bfa;
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.6));
+  transition: all 0.25s ease;
 }
 
 .input-icon {
@@ -565,21 +590,40 @@ onUnmounted(() => {
   padding: 15px;
   border: none;
   border-radius: 14px;
-  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 50%, #5b21b6 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 40%, #6d28d9 100%);
   color: #fff;
   font-size: 16px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   cursor: pointer;
   position: relative;
   overflow: hidden;
   transition: all 0.25s ease;
-  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.35);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* 扫光动画 */
+.auth-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  transform: skewX(-20deg);
+  animation: btnShine 3.2s ease-in-out infinite;
+}
+
+@keyframes btnShine {
+  0% { left: -80%; }
+  55% { left: 130%; }
+  100% { left: 130%; }
 }
 
 .auth-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(124, 58, 237, 0.5);
+  box-shadow: 0 12px 32px rgba(124, 58, 237, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .auth-btn:active:not(:disabled) {
@@ -589,6 +633,11 @@ onUnmounted(() => {
 .auth-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  animation: none;
+}
+
+.auth-btn:disabled::after {
+  animation: none;
 }
 
 /* 步骤指示器 */
@@ -657,11 +706,27 @@ onUnmounted(() => {
   cursor: pointer;
   text-decoration: none;
   transition: all 0.2s;
+  background-image: linear-gradient(90deg, #a78bfa, #7dd3fc);
+  background-size: 0% 1.5px;
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  padding-bottom: 2px;
 }
 
 .switch-line a:hover {
   color: #fff;
+  background-size: 100% 1.5px;
   text-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+}
+
+/* 底部品牌行 */
+.brand-line {
+  margin-top: 22px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.25);
+  font-weight: 500;
 }
 
 /* 响应式 */

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.config import API_KEY
 from app.core.auth import decode_token
+from app.api.auth import require_admin
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -288,3 +289,37 @@ async def server_overview(name: str):
             "data_points": len(cpu_vals),
         },
     }
+
+
+@router.get("/agents-health", dependencies=[Depends(require_admin)])
+async def agents_health():
+    """每台 agent 的上报健康：最后上报时间 / 版本 / 推送频率。"""
+    db = await get_db()
+    now = int(time.time())
+    cur = await db.execute("SELECT DISTINCT server_name FROM metrics_raw ORDER BY server_name")
+    servers = [r["server_name"] for r in await cur.fetchall()]
+    out = []
+    for name in servers:
+        cur = await db.execute(
+            "SELECT data FROM metrics_raw WHERE server_name = ? ORDER BY timestamp DESC LIMIT 1",
+            (name,),
+        )
+        row = await cur.fetchone()
+        latest = json.loads(row["data"]) if row else {}
+        cur = await db.execute(
+            "SELECT MAX(timestamp) as last_ts, COUNT(*) as n FROM metrics_raw "
+            "WHERE server_name = ? AND timestamp > ?",
+            (name, now - 600),
+        )
+        st = await cur.fetchone()
+        last_ts = st["last_ts"] or 0
+        out.append({
+            "server_name": name,
+            "version": latest.get("agent_version"),
+            "hostname": latest.get("hostname"),
+            "last_ts": last_ts,
+            "last_age": now - last_ts,
+            "pushes_10min": st["n"],
+            "online": (now - last_ts) <= 120,
+        })
+    return out

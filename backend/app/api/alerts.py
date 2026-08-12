@@ -151,3 +151,51 @@ async def list_audit(limit: int = 50):
         "SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (min(max(limit, 1), 200),)
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+# ── 维护模式 ──────────────────────────────────────────────────────
+class MaintenanceRequest(BaseModel):
+    server_name: str = Field(default="*", min_length=1, max_length=64)
+    start_at: int   # unix 秒
+    end_at: int
+    note: str = Field(default="", max_length=256)
+
+
+@router.get("/maintenance", dependencies=[Depends(require_admin)])
+async def list_maintenance():
+    db = await get_db()
+    now = int(time.time())
+    cur = await db.execute("SELECT * FROM maintenance_windows ORDER BY start_at DESC")
+    windows = [dict(r) for r in await cur.fetchall()]
+    for w in windows:
+        w["active"] = w["start_at"] <= now <= w["end_at"]
+        w["expired"] = w["end_at"] < now
+    return windows
+
+
+@router.post("/maintenance", dependencies=[Depends(require_admin)])
+async def create_maintenance(req: MaintenanceRequest, admin: dict = Depends(require_admin)):
+    if req.end_at <= req.start_at:
+        raise HTTPException(status_code=400, detail="结束时间必须晚于开始时间")
+    if req.server_name != "*" and req.server_name not in ("oracle", "tencent"):
+        raise HTTPException(status_code=400, detail="服务器必须是 oracle / tencent / * (全部)")
+    db = await get_db()
+    cur = await db.execute(
+        "INSERT INTO maintenance_windows (server_name, start_at, end_at, note, created_at) VALUES (?, ?, ?, ?, ?)",
+        (req.server_name, req.start_at, req.end_at, req.note.strip(), int(time.time())),
+    )
+    await db.commit()
+    from app.core.database import audit_log
+    await audit_log(admin["email"], "create_maintenance",
+                    f"{req.server_name} {req.start_at}→{req.end_at} {req.note}")
+    return {"ok": True, "id": cur.lastrowid}
+
+
+@router.delete("/maintenance/{window_id}", dependencies=[Depends(require_admin)])
+async def delete_maintenance(window_id: int):
+    db = await get_db()
+    cur = await db.execute("DELETE FROM maintenance_windows WHERE id = ?", (window_id,))
+    await db.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="窗口不存在")
+    return {"ok": True}

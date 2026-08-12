@@ -11,6 +11,9 @@ from app.core.config import (
     TELEGRAM_CHAT_ID,
     BARK_KEY,
     BARK_GROUP,
+    SERVERCHAN_KEY,
+    WECOM_WEBHOOK,
+    DINGTALK_WEBHOOK,
     TRAFFIC_QUOTA_GB,
 )
 from app.core.database import get_db
@@ -173,6 +176,67 @@ async def _send_bark(text: str) -> bool:
         return False
 
 
+async def _send_serverchan(text: str) -> bool:
+    """Server酱 (WeChat push): POST https://sctapi.ftqq.com/<key>.send"""
+    if not SERVERCHAN_KEY:
+        return False
+    title, _, body = text.partition("：")
+    if not body:
+        title, _, body = text.partition(":")
+    url = f"https://sctapi.ftqq.com/{SERVERCHAN_KEY}.send"
+    data = urllib.parse.urlencode({
+        "title": (title or "监控告警")[:32],
+        "desp": text[:4000],
+    }).encode()
+    try:
+        req = urllib.request.Request(url, data=data)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rj = json.loads(resp.read().decode() or "{}")
+            if rj.get("code") not in (None, 0):
+                logger.warning("Server酱 push rejected: %s", rj)
+                return False
+            return resp.status == 200
+    except Exception as e:
+        logger.warning("Server酱 push failed: %s", e)
+        return False
+
+
+async def _send_wecom(text: str) -> bool:
+    """企业微信群机器人 webhook."""
+    if not WECOM_WEBHOOK:
+        return False
+    body = json.dumps({"msgtype": "text", "text": {"content": text[:4000]}}).encode()
+    try:
+        req = urllib.request.Request(WECOM_WEBHOOK, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rj = json.loads(resp.read().decode() or "{}")
+            if rj.get("errcode") not in (None, 0):
+                logger.warning("企业微信 push rejected: %s", rj)
+                return False
+            return resp.status == 200
+    except Exception as e:
+        logger.warning("企业微信 push failed: %s", e)
+        return False
+
+
+async def _send_dingtalk(text: str) -> bool:
+    """钉钉群机器人 webhook."""
+    if not DINGTALK_WEBHOOK:
+        return False
+    body = json.dumps({"msgtype": "text", "text": {"content": text[:4000]}}).encode()
+    try:
+        req = urllib.request.Request(DINGTALK_WEBHOOK, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rj = json.loads(resp.read().decode() or "{}")
+            if rj.get("errcode") not in (None, 0):
+                logger.warning("钉钉 push rejected: %s", rj)
+                return False
+            return resp.status == 200
+    except Exception as e:
+        logger.warning("钉钉 push failed: %s", e)
+        return False
+
+
 async def _notify(text: str) -> dict:
     """Send to every configured channel. Returns {channel: ok}."""
     results = {}
@@ -180,9 +244,27 @@ async def _notify(text: str) -> dict:
         results["telegram"] = await _send_telegram(text)
     if BARK_KEY:
         results["bark"] = await _send_bark(text)
+    if SERVERCHAN_KEY:
+        results["serverchan"] = await _send_serverchan(text)
+    if WECOM_WEBHOOK:
+        results["wecom"] = await _send_wecom(text)
+    if DINGTALK_WEBHOOK:
+        results["dingtalk"] = await _send_dingtalk(text)
     if not results:
         logger.info("No notification channel configured, alert not pushed: %s", text[:80])
     return results
+
+
+async def _in_maintenance(server: str) -> bool:
+    """True if `server` is inside an active maintenance window ('*' matches all)."""
+    db = await get_db()
+    now = int(time.time())
+    cur = await db.execute(
+        "SELECT id FROM maintenance_windows WHERE start_at <= ? AND end_at >= ? "
+        "AND (server_name = '*' OR server_name = ?) LIMIT 1",
+        (now, now, server),
+    )
+    return await cur.fetchone() is not None
 
 
 async def _recent_event(server: str, metric: str, kind: str, within: int, rule_id: int | None = None) -> bool:
@@ -273,7 +355,8 @@ async def check_threshold_rules() -> None:
                 msg = (f"🚨 告警 [{server}] {rule['metric']} {rule['operator']} {rule['threshold']}{unit}，"
                        f"当前 {value:.2f}{unit}{extra}")
                 await _record_event(rule["id"], server, rule["metric"], value, msg, "threshold")
-                await _notify(msg)
+                if not await _in_maintenance(server):
+                    await _notify(msg)
             else:
                 # ── Recovery: 该规则最近一次事件是 threshold(已触发)且现已恢复 ──
                 last_kind = await _last_event_kind(server, rule["metric"], ("threshold", "recovered"), rule_id=rule["id"])
@@ -284,7 +367,8 @@ async def check_threshold_rules() -> None:
                 msg = (f"✅ 已恢复 [{server}] {rule['metric']}："
                        f"{value:.2f}{unit}，不再满足 {rule['operator']} {rule['threshold']}{unit}")
                 await _record_event(rule["id"], server, rule["metric"], value, msg, "recovered")
-                await _notify(msg)
+                if not await _in_maintenance(server):
+                    await _notify(msg)
 
 
 async def check_offline() -> None:
@@ -301,7 +385,8 @@ async def check_offline() -> None:
                 continue
             msg = f"⚠️ 服务器离线 [{server}]：已 {now - ts} 秒无数据上报，可能宕机或网络中断"
             await _record_event(None, server, "heartbeat", float(now - ts), msg, "offline")
-            await _notify(msg)
+            if not await _in_maintenance(server):
+                await _notify(msg)
         else:
             # ── 离线恢复: 最近一条 heartbeat 事件是 offline 且数据已恢复 → 发恢复 ──
             last_kind = await _last_event_kind(server, "heartbeat", ("offline", "recovered"))
@@ -309,7 +394,8 @@ async def check_offline() -> None:
                 continue
             msg = f"✅ 服务器已恢复上线 [{server}]：数据恢复正常上报"
             await _record_event(None, server, "heartbeat", 0.0, msg, "recovered")
-            await _notify(msg)
+            if not await _in_maintenance(server):
+                await _notify(msg)
 
 
 async def alert_loop() -> None:
