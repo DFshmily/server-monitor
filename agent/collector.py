@@ -19,6 +19,10 @@ TRAFFIC_STATE_FILE = os.environ.get(
 CERT_REFRESH_SECONDS = 6 * 3600  # refresh every 6h
 _cert_cache: dict = {}
 
+# Docker stats cache: docker stats API 慢(1-2s), 30s 刷新一次即可
+DOCKER_REFRESH_SECONDS = 30
+_docker_cache: dict = {"at": 0.0, "data": None}
+
 # Monthly traffic quota (GiB) for THIS server; 0/absent = 不监控额度百分比.
 # 每台服务器独立配置(环境变量), 规则阈值可在面板按服务器定制.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
@@ -391,7 +395,13 @@ def get_system_metrics() -> dict:
 
 
 def get_docker_metrics() -> dict:
-    """Docker container stats (if Docker is available)."""
+    """Docker container stats (if Docker is available).
+
+    docker stats API 较慢(1-2s), 加 30s 缓存避免拖慢每次采集。
+    """
+    now = time.time()
+    if now - _docker_cache["at"] < DOCKER_REFRESH_SECONDS and _docker_cache["data"] is not None:
+        return _docker_cache["data"]
     try:
         import docker
         client = docker.from_env()
@@ -438,9 +448,13 @@ def get_docker_metrics() -> dict:
                 "created": int(c.attrs['Created'].timestamp()) if hasattr(c.attrs.get('Created', ''), 'timestamp') else 0,
                 **stats,
             })
-        return {"containers": containers, "total": len(containers)}
+        result = {"containers": containers, "total": len(containers)}
+        _docker_cache.update(at=now, data=result)
+        return result
     except Exception:
-        return {"containers": [], "total": 0, "error": "docker_unavailable"}
+        result = {"containers": [], "total": 0, "error": "docker_unavailable"}
+        _docker_cache.update(at=now, data=result)
+        return result
 
 
 def get_services_metrics() -> dict:

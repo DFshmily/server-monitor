@@ -2,12 +2,22 @@
 Description=Server Monitor Agent (Tencent)
 After=network.target
 
+# 直连源站(绕过 Cloudflare, 更稳定): 在服务器上创建 drop-in 覆盖, 勿提交源站 IP 到公开仓库:
+#   sudo mkdir -p /etc/systemd/system/monitor-agent-tencent.service.d
+#   sudo tee /etc/systemd/system/monitor-agent-tencent.service.d/override.conf <<'EOF'
+#   [Service]
+#   Environment=MONITOR_ORIGIN_URL=https://<源站IP>
+#   Environment=MONITOR_PUSH_HOST=dashboard.dfshmily.icu
+#   Environment=MONITOR_PUSH_VERIFY=0
+#   EOF
+#   sudo systemctl daemon-reload && sudo systemctl restart monitor-agent-tencent
+
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/home/ubuntu/server-monitor/agent
 Environment=MONITOR_BACKEND_URL=https://dashboard.dfshmily.icu
-Environment=MONITOR_INTERVAL=2
+Environment=MONITOR_INTERVAL=5
 Environment=MONITOR_SERVER_NAME=tencent
 Environment=MONITOR_API_KEY=monitor-secret-key-2026
 Environment=MONITOR_CERT_DOMAINS=dashboard.dfshmily.icu,dfshmily.icu

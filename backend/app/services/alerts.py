@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # ── Tunables ────────────────────────────────────────────────────────
 CHECK_INTERVAL = 15          # seconds between alert sweeps
 COOLDOWN_SECONDS = 1800      # don't re-alert same rule+server for 30 min
-OFFLINE_AFTER_SECONDS = 90   # no data for 90s => server offline
+OFFLINE_AFTER_SECONDS = 120  # no data for 120s => server offline
 OFFLINE_COOLDOWN_SECONDS = 600
 RECOVERY_WINDOW = 6 * 3600   # only send "recovered" if it fired within 6h
 
@@ -202,6 +202,21 @@ async def _recent_event(server: str, metric: str, kind: str, within: int, rule_i
     return await cur.fetchone() is not None
 
 
+async def _last_event_kind(server: str, metric: str, kinds: tuple, rule_id: int | None = None) -> str | None:
+    """Latest event kind for server+metric among `kinds` (state-machine recovery)."""
+    db = await get_db()
+    sql = ("SELECT kind FROM alert_events WHERE server_name = ? AND metric = ? "
+           f"AND kind IN ({','.join('?' * len(kinds))})")
+    params: list = [server, metric, *kinds]
+    if rule_id is not None:
+        sql += " AND rule_id = ?"
+        params.append(rule_id)
+    sql += " ORDER BY id DESC LIMIT 1"
+    cur = await db.execute(sql, params)
+    row = await cur.fetchone()
+    return row["kind"] if row else None
+
+
 async def _record_event(rule_id, server, metric, value, message, kind="threshold"):
     db = await get_db()
     await db.execute(
@@ -260,11 +275,11 @@ async def check_threshold_rules() -> None:
                 await _record_event(rule["id"], server, rule["metric"], value, msg, "threshold")
                 await _notify(msg)
             else:
-                # ── Recovery: condition cleared after this exact rule fired recently ──
-                fired = await _recent_event(server, rule["metric"], "threshold", RECOVERY_WINDOW, rule_id=rule["id"])
-                if not fired:
+                # ── Recovery: 该规则最近一次事件是 threshold(已触发)且现已恢复 ──
+                last_kind = await _last_event_kind(server, rule["metric"], ("threshold", "recovered"), rule_id=rule["id"])
+                if last_kind != "threshold":
                     continue
-                if await _recent_event(server, rule["metric"], "recovered", RECOVERY_WINDOW, rule_id=rule["id"]):
+                if not await _recent_event(server, rule["metric"], "threshold", RECOVERY_WINDOW, rule_id=rule["id"]):
                     continue
                 msg = (f"✅ 已恢复 [{server}] {rule['metric']}："
                        f"{value:.2f}{unit}，不再满足 {rule['operator']} {rule['threshold']}{unit}")
@@ -288,11 +303,9 @@ async def check_offline() -> None:
             await _record_event(None, server, "heartbeat", float(now - ts), msg, "offline")
             await _notify(msg)
         else:
-            # ── Offline recovery: server reporting again after an offline event ──
-            was_offline = await _recent_event(server, "heartbeat", "offline", RECOVERY_WINDOW)
-            if not was_offline:
-                continue
-            if await _recent_event(server, "heartbeat", "recovered", RECOVERY_WINDOW):
+            # ── 离线恢复: 最近一条 heartbeat 事件是 offline 且数据已恢复 → 发恢复 ──
+            last_kind = await _last_event_kind(server, "heartbeat", ("offline", "recovered"))
+            if last_kind != "offline":
                 continue
             msg = f"✅ 服务器已恢复上线 [{server}]：数据恢复正常上报"
             await _record_event(None, server, "heartbeat", 0.0, msg, "recovered")
