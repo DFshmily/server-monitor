@@ -337,7 +337,6 @@ function fmtUA(ua) {
 
 // ── 服务探活 ──
 const probes = ref([])
-const probeForm = ref({ name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 })
 const showProbeForm = ref(false)
 const testingId = ref(null)
 const testMsg = ref('')
@@ -357,15 +356,25 @@ async function loadProbes() {
 }
 
 // ── 新增 / 编辑共用表单 ──
+const UNIT_MULT = { s: 1, m: 60, h: 3600 }
+const emptyProbeForm = () => ({ name: '', type: 'http', target: '', expected: '', interval: 60, intervalUnit: 's', timeout: 10 })
+const probeForm = ref(emptyProbeForm())
 const editingId = ref(null)
+// 秒 → 友好单位回填：能被整除就升级单位
+function pickUnit(secs) {
+  if (secs >= 3600 && secs % 3600 === 0) return { v: secs / 3600, u: 'h' }
+  if (secs >= 60 && secs % 60 === 0) return { v: secs / 60, u: 'm' }
+  return { v: secs, u: 's' }
+}
 function startEdit(p) {
-  probeForm.value = { name: p.name, type: p.type, target: p.target, expected: p.expected || '', interval: p.interval, timeout: p.timeout }
+  const iv = pickUnit(p.interval)
+  probeForm.value = { name: p.name, type: p.type, target: p.target, expected: p.expected || '', interval: iv.v, intervalUnit: iv.u, timeout: p.timeout }
   editingId.value = p.id
   showProbeForm.value = true
 }
 function cancelEdit() {
   editingId.value = null
-  probeForm.value = { name: '', type: 'http', target: '', expected: '', interval: 60, timeout: 10 }
+  probeForm.value = emptyProbeForm()
   showProbeForm.value = false
 }
 async function saveProbe() {
@@ -374,12 +383,19 @@ async function saveProbe() {
     error.value = '请填写名称和目标'
     return
   }
+  const intervalSec = Math.round(probeForm.value.interval * UNIT_MULT[probeForm.value.intervalUnit])
+  if (intervalSec < 10 || intervalSec > 86400) {
+    error.value = '探测间隔需在 10 秒 ~ 24 小时之间'
+    return
+  }
+  const body = { ...probeForm.value, interval: intervalSec }
+  delete body.intervalUnit
   try {
     if (editingId.value) {
-      await api(`/api/probes/rules/${editingId.value}`, { method: 'PUT', body: JSON.stringify(probeForm.value) })
+      await api(`/api/probes/rules/${editingId.value}`, { method: 'PUT', body: JSON.stringify(body) })
       success.value = '✅ 探活规则已更新'
     } else {
-      await api('/api/probes/rules', { method: 'POST', body: JSON.stringify(probeForm.value) })
+      await api('/api/probes/rules', { method: 'POST', body: JSON.stringify(body) })
       success.value = '✅ 探活规则已添加'
     }
     cancelEdit()
@@ -752,8 +768,12 @@ onMounted(async () => {
         <input v-model="probeForm.target" class="probe-input" placeholder="目标：https://… / host:port / IP / 域名" maxlength="512" />
         <input v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
         <span class="interval-unit">
-          <input v-model.number="probeForm.interval" type="number" class="count-input" min="10" max="86400" title="探测间隔" placeholder="60" />
-          <em>秒</em>
+          <input v-model.number="probeForm.interval" type="number" class="count-input" min="1" max="86400" title="探测间隔" placeholder="60" />
+          <select v-model="probeForm.intervalUnit" class="count-input" style="width:74px" title="间隔单位">
+            <option value="s">秒</option>
+            <option value="m">分钟</option>
+            <option value="h">小时</option>
+          </select>
         </span>
         <button class="btn-primary" @click="saveProbe">{{ editingId ? '保存修改' : '添加' }}</button>
         <button v-if="editingId" class="btn-secondary" @click="cancelEdit">取消</button>
@@ -1291,12 +1311,6 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.interval-unit em {
-  font-style: normal;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 600;
 }
 .probe-table { display: flex; flex-direction: column; }
 .probe-row {
