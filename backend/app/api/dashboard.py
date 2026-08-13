@@ -319,60 +319,6 @@ async def custom_history(name: str, item: str, hours: int = 24):
     return points
 
 
-@router.get("/badge/{name}.svg")
-async def status_badge(name: str):
-    """公开状态徽章（SVG, shields.io 风格, 无需登录, 可嵌入教程/论坛/README）。
-
-    左侧标签 = 服务器名(别名优先), 右侧 = 24h 可用率(在线绿色/离线红色)。
-    """
-    from fastapi.responses import Response
-    db = await get_db()
-    now = int(time.time())
-
-    ac = await db.execute("SELECT alias FROM server_meta WHERE server_name = ?", (name,))
-    arow = await ac.fetchone()
-    label = (arow["alias"] if arow and arow["alias"] else name) or name
-
-    # 24h 可用率: 每 5 分钟窗口内有上报即算在线
-    cur = await db.execute(
-        "SELECT COUNT(DISTINCT timestamp/300) as n FROM metrics_raw "
-        "WHERE server_name = ? AND timestamp > ?",
-        (name, now - 86400),
-    )
-    row = await cur.fetchone()
-    windows = row["n"] if row else 0
-    total_windows = 86400 // 300
-    uptime = round(windows / total_windows * 100, 1) if windows else 0.0
-    uptime = min(uptime, 100.0)  # 边界统计可能略超 100%
-
-    # 当前在线状态: 最新数据 < 120s
-    cur = await db.execute(
-        "SELECT MAX(timestamp) as ts FROM metrics_raw WHERE server_name = ?", (name,)
-    )
-    row = await cur.fetchone()
-    online = bool(row and row["ts"] and now - row["ts"] <= 120)
-
-    color = "#34c759" if online else "#ff3b30"
-    value = f"{uptime}% 可用" if online else "离线"
-
-    lw = max(48, len(label) * 8 + 22)      # 左标签宽
-    rw = max(72, len(value) * 8 + 22)      # 右值宽
-    total_w = lw + rw
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{total_w}" height="20" role="img" aria-label="{label}: {value}">
-  <title>{label}: {value}</title>
-  <g shape-rendering="crispEdges">
-    <rect width="{lw}" height="20" fill="#4c566a"/>
-    <rect x="{lw}" width="{rw}" height="20" fill="{color}"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
-    <text x="{lw/2}" y="14" font-weight="bold">{label}</text>
-    <text x="{lw + rw/2}" y="14" font-weight="bold">{value}</text>
-  </g>
-</svg>'''
-    return Response(content=svg, media_type="image/svg+xml",
-                    headers={"Cache-Control": "no-cache, no-store"})
-
-
 @router.get("/servers/{name}/events", dependencies=[Depends(require_user)])
 async def server_events(name: str, hours: int = 24):
     """服务器相关事件(告警/离线/恢复) + 维护窗口，供详情页图表标注（Grafana Annotations 风格）。"""

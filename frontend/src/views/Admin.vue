@@ -557,16 +557,6 @@ async function deleteCustom(c) {
 
 const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark' }
 
-// ── 状态徽章 ──
-const badgeServers = ['oracle', 'tencent']
-const badgeUrl = (s) => `https://dashboard.dfshmily.icu/api/badge/${s}.svg`
-async function badgeCopy(s) {
-  try {
-    await navigator.clipboard.writeText(badgeUrl(s))
-    success.value = `✅ 徽章链接已复制`
-  } catch (e) { error.value = '复制失败，请手动复制' }
-}
-
 onMounted(async () => {
   if (!auth.isAdmin()) {
     router.push('/')
@@ -990,20 +980,6 @@ onMounted(async () => {
         </div>
         <div v-if="customCmds.length === 0" class="probe-row"><span class="muted-tag">还没有自定义监控项 · 点击右上角"添加命令"创建</span></div>
       </div>
-    </div>
-
-    <!-- 状态徽章 -->
-    <div class="glass-card section">
-      <div class="section-head">
-        <h3>🛡 状态徽章</h3>
-      </div>
-      <div class="section-hint">公开的实时状态图片（无需登录），可嵌入教程 / 论坛 / README · 在线绿色 / 离线红色</div>
-      <div v-for="s in badgeServers" :key="s" class="badge-item">
-        <img :src="badgeUrl(s)" :alt="`${s} 状态徽章`" class="badge-img" />
-        <code class="badge-code">{{ badgeUrl(s) }}</code>
-        <button class="btn-secondary" @click="badgeCopy(s)">复制链接</button>
-      </div>
-      <div class="section-hint" style="margin-top:10px">Markdown 用法：<code>![服务器状态](https://dashboard.dfshmily.icu/api/badge/oracle.svg)</code></div>
     </div>
 
     <!-- 维护模式 -->
@@ -1591,27 +1567,6 @@ onMounted(async () => {
 .maint-server { font-weight: 600; }
 .maint-range { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
 .maint-note { color: var(--text-tertiary); font-size: 12px; flex: 1; min-width: 80px; }
-
-/* ── 状态徽章 ── */
-.badge-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  flex-wrap: wrap;
-}
-.badge-img { height: 20px; width: auto; flex-shrink: 0; }
-.badge-code {
-  flex: 1;
-  min-width: 200px;
-  font-family: 'SF Mono', monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 手机端：自定义监控项专用卡片布局（覆盖通用 probe-row 手机规则） */
 @media (max-width: 720px) {
