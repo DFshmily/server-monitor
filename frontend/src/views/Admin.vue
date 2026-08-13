@@ -557,6 +557,76 @@ async function deleteCustom(c) {
 
 const CHANNEL_NAMES = { telegram: 'Telegram', bark: 'Bark' }
 
+// ── 心跳监控（Healthchecks.io 风格）──
+const heartbeats = ref([])
+const hbForm = ref({ name: '', interval: 24, intervalUnit: 'h', grace: 1, graceUnit: 'h' })
+const showHbForm = ref(false)
+const editingHbId = ref(null)
+const newHbSlug = ref('')
+const newHbName = ref('')
+const emptyHbForm = () => ({ name: '', interval: 24, intervalUnit: 'h', grace: 1, graceUnit: 'h' })
+const HB_BASE = 'https://dashboard.dfshmily.icu/api/heartbeat'
+
+async function loadHeartbeats() {
+  try { heartbeats.value = await api('/api/heartbeats') } catch (e) { error.value = e.message }
+}
+function startEditHb(h) {
+  const iv = pickUnit(h.interval)
+  const gv = pickUnit(h.grace)
+  hbForm.value = { name: h.name, interval: iv.v, intervalUnit: iv.u, grace: gv.v, graceUnit: gv.u }
+  editingHbId.value = h.id
+  showHbForm.value = true
+}
+function cancelEditHb() {
+  editingHbId.value = null
+  hbForm.value = emptyHbForm()
+  showHbForm.value = false
+}
+async function saveHb() {
+  error.value = ''; success.value = ''
+  if (!hbForm.value.name.trim()) { error.value = '请填写任务名称'; return }
+  const intervalSec = Math.round(hbForm.value.interval * UNIT_MULT[hbForm.value.intervalUnit])
+  const graceSec = Math.round(hbForm.value.grace * UNIT_MULT[hbForm.value.graceUnit])
+  if (intervalSec < 60 || intervalSec > 30 * 86400) { error.value = '间隔需在 1 分钟 ~ 30 天之间'; return }
+  const body = { name: hbForm.value.name, interval: intervalSec, grace: graceSec }
+  try {
+    if (editingHbId.value) {
+      await api(`/api/heartbeats/${editingHbId.value}`, { method: 'PUT', body: JSON.stringify(body) })
+      success.value = '✅ 心跳项已更新'
+    } else {
+      const res = await api('/api/heartbeats', { method: 'POST', body: JSON.stringify(body) })
+      newHbSlug.value = res.slug
+      newHbName.value = body.name
+      success.value = '✅ 心跳项已创建，复制下面的 URL 加到任务末尾'
+    }
+    cancelEditHb()
+    await loadHeartbeats()
+  } catch (e) { error.value = e.message }
+}
+async function toggleHb(h) {
+  try {
+    await api(`/api/heartbeats/${h.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !h.enabled }) })
+    await loadHeartbeats()
+  } catch (e) { error.value = e.message }
+}
+async function deleteHb(h) {
+  error.value = ''; success.value = ''
+  try {
+    await api(`/api/heartbeats/${h.id}`, { method: 'DELETE' })
+    success.value = `❌ 已删除心跳项 ${h.name}`
+    await loadHeartbeats()
+  } catch (e) { error.value = e.message }
+}
+async function copyHbUrl(h) {
+  try {
+    await navigator.clipboard.writeText(`${HB_BASE}/${h.slug}`)
+    success.value = `✅ 心跳 URL 已复制`
+  } catch (e) { error.value = '复制失败，请手动复制' }
+}
+const hbStatusLabel = (h) => ({ ok: '正常', late: '延迟', missed: '💔 超时', new: '待首次心跳' }[h.status] || h.status)
+const hbStatusClass = (h) => (h.status === 'ok' ? 'ok' : h.status === 'late' ? 'late' : h.status === 'missed' ? 'missed' : '')
+const hbLastLabel = (h) => (h.last_ping ? formatTs(h.last_ping) : '从未')
+
 onMounted(async () => {
   if (!auth.isAdmin()) {
     router.push('/')
@@ -574,6 +644,7 @@ onMounted(async () => {
     await loadMaintenance()
     await loadAgentHealth()
     await loadCustomCmds()
+    await loadHeartbeats()
   } catch (e) {
     error.value = e.message
   }
@@ -979,6 +1050,66 @@ onMounted(async () => {
           </span>
         </div>
         <div v-if="customCmds.length === 0" class="probe-row"><span class="muted-tag">还没有自定义监控项 · 点击右上角"添加命令"创建</span></div>
+      </div>
+    </div>
+
+    <!-- 心跳监控 -->
+    <div class="glass-card section">
+      <div class="section-head">
+        <h3>💓 心跳监控</h3>
+        <button class="btn-secondary" @click="showHbForm ? cancelEditHb() : (showHbForm = true)">
+          {{ showHbForm ? '收起' : '＋ 新建心跳' }}
+        </button>
+      </div>
+      <div class="section-hint">监控定时任务（备份 / cron）是否按时执行 · 任务末尾加一行 curl 心跳 URL，超时未收到自动推送告警</div>
+      <div v-if="showHbForm" class="probe-form">
+        <input v-model="hbForm.name" class="probe-input" style="max-width:180px" placeholder="任务名称，如：数据库备份" maxlength="64" />
+        <span class="interval-unit">
+          <input v-model.number="hbForm.interval" type="number" class="count-input" min="1" max="43200" title="预期间隔" placeholder="24" />
+          <select v-model="hbForm.intervalUnit" class="count-input" style="width:74px">
+            <option value="m">分钟</option>
+            <option value="h">小时</option>
+            <option value="s">秒</option>
+          </select>
+        </span>
+        <span class="muted-tag">+ 宽限</span>
+        <span class="interval-unit">
+          <input v-model.number="hbForm.grace" type="number" class="count-input" min="1" max="43200" title="宽限" placeholder="1" />
+          <select v-model="hbForm.graceUnit" class="count-input" style="width:74px">
+            <option value="h">小时</option>
+            <option value="m">分钟</option>
+            <option value="s">秒</option>
+          </select>
+        </span>
+        <button class="btn-primary" @click="saveHb">{{ editingHbId ? '保存修改' : '创建' }}</button>
+        <button v-if="editingHbId" class="btn-secondary" @click="cancelEditHb">取消</button>
+      </div>
+      <div v-if="newHbSlug" class="hb-new-url">
+        <div>✅ 心跳 URL（加到「{{ newHbName }}」任务末尾）：</div>
+        <code>{{ HB_BASE }}/{{ newHbSlug }}</code>
+        <button class="btn-secondary" @click="navigator.clipboard.writeText(`${HB_BASE}/${newHbSlug}`).then(() => success.value = '✅ 已复制')">复制</button>
+      </div>
+      <div class="probe-table">
+        <div class="probe-row header hb-row">
+          <span>名称</span><span>间隔</span><span>宽限</span><span>最近心跳</span><span>状态</span><span>操作</span>
+        </div>
+        <div v-for="h in heartbeats" :key="h.id" class="probe-row hb-row">
+          <span class="probe-name">{{ h.name }}</span>
+          <span>{{ h.interval_label }}</span>
+          <span class="muted-tag">{{ h.grace_label }}</span>
+          <span class="user-time">{{ hbLastLabel(h) }}</span>
+          <span>
+            <span class="hb-dot" :class="hbStatusClass(h)"></span>
+            {{ hbStatusLabel(h) }}
+          </span>
+          <span class="probe-actions">
+            <button class="link-btn" @click="copyHbUrl(h)">复制URL</button>
+            <button class="link-btn" @click="startEditHb(h)">编辑</button>
+            <button class="link-btn" @click="toggleHb(h)">{{ h.enabled ? '停用' : '启用' }}</button>
+            <button class="link-btn danger" @click="deleteHb(h)">删除</button>
+          </span>
+        </div>
+        <div v-if="heartbeats.length === 0" class="probe-row"><span class="muted-tag">还没有心跳项 · 点击"新建心跳"给备份 / cron 任务上保险</span></div>
       </div>
     </div>
 
@@ -1567,6 +1698,38 @@ onMounted(async () => {
 .maint-server { font-weight: 600; }
 .maint-range { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: 12px; }
 .maint-note { color: var(--text-tertiary); font-size: 12px; flex: 1; min-width: 80px; }
+
+/* ── 心跳监控 ── */
+.probe-row.hb-row { grid-template-columns: 1.2fr 0.8fr 0.8fr 1.2fr 1fr 1.6fr; }
+.hb-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #c7c7cc;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.hb-dot.ok { background: var(--status-green); }
+.hb-dot.late { background: var(--status-orange); }
+.hb-dot.missed { background: var(--status-red); box-shadow: 0 0 6px rgba(255, 59, 48, 0.6); }
+.hb-new-url {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: rgba(52, 199, 89, 0.08);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+  font-size: 13px;
+}
+.hb-new-url code {
+  font-family: 'SF Mono', monospace;
+  font-size: 12px;
+  color: var(--status-green);
+  word-break: break-all;
+}
 
 /* 手机端：自定义监控项专用卡片布局（覆盖通用 probe-row 手机规则） */
 @media (max-width: 720px) {

@@ -155,6 +155,19 @@ async def init_db() -> None:
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_custom_server ON custom_commands(server_name);
+
+        CREATE TABLE IF NOT EXISTS heartbeat_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE NOT NULL,             -- 心跳 URL 标识（URL 即密钥）
+            interval INTEGER NOT NULL DEFAULT 86400,  -- 预期间隔(秒)
+            grace INTEGER NOT NULL DEFAULT 3600,      -- 宽限(秒)
+            last_ping INTEGER DEFAULT 0,
+            last_ping_success INTEGER DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_heartbeat_slug ON heartbeat_checks(slug);
     """)
     # ── Migrations (idempotent ALTERs for schema evolution) ──
     cols = [r["name"] for r in await (await db.execute("PRAGMA table_info(login_attempts)")).fetchall()]

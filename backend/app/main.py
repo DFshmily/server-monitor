@@ -18,9 +18,11 @@ from app.api.ws import router as ws_router
 from app.api.alerts import router as alerts_router
 from app.api.probes import router as probes_router
 from app.api.custom import router as custom_router
+from app.api.heartbeats import router as heartbeats_router
 from app.services.aggregator import aggregator_loop
 from app.services.alerts import alert_loop
 from app.services.probes import probe_loop
+from app.services.heartbeats import heartbeat_loop
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,10 +66,13 @@ async def lifespan(app: FastAPI):
     logger.info("Alert engine started")
     probe_task = asyncio.create_task(probe_loop())
     logger.info("Probe engine started")
+    hb_task = asyncio.create_task(heartbeat_loop())
+    logger.info("Heartbeat engine started")
     yield
     task.cancel()
     alert_task.cancel()
     probe_task.cancel()
+    hb_task.cancel()
     await close_db()
 
 
@@ -89,6 +94,7 @@ app.include_router(ws_router)
 app.include_router(alerts_router)
 app.include_router(probes_router)
 app.include_router(custom_router)
+app.include_router(heartbeats_router)
 
 # Serve frontend static files if built
 if FRONTEND_DIST.is_dir():

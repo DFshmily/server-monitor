@@ -5,6 +5,9 @@
 真正值钱的是 users / 邀请码 / 告警规则 / 探活规则 / 审计等小表。
 备份文件从 1GB 缩小到几百 KB，保留最近 1 份，自动删除更早的。
 
+备份成功后向心跳 URL 报平安（配合面板"心跳监控"：任务挂了会告警）：
+    HEARTBEAT_URL=https://dashboard.dfshmily.icu/api/heartbeat/<slug> python3 backup_db.py
+
 用法（systemd timer 每天调用）:
     python3 /home/ubuntu/server-monitor/deploy/backup_db.py
 """
@@ -13,10 +16,12 @@ import os
 import sqlite3
 import sys
 import time
+import urllib.request
 
 SRC = os.environ.get("MONITOR_DB", "/var/lib/server-monitor/data.db")
 BACKUP_DIR = "/var/lib/server-monitor/backups"
 KEEP = 1  # 只保留最近 1 份，更早的自动删除
+HEARTBEAT_URL = os.environ.get("HEARTBEAT_URL", "")  # 备份成功后的心跳通知
 
 # 关键表：账号、邀请码、规则、审计、探活配置/结果、别名
 KEY_TABLES = [
@@ -76,8 +81,18 @@ def backup() -> str:
         removed.append(os.path.basename(old))
 
     size_kb = round(os.path.getsize(dst) / 1024, 1)
-    return f"轻量备份完成: {os.path.basename(dst)} ({size_kb} KB)，当前共 {min(len(backups), KEEP)} 份" + \
-           (f"，已删除旧备份 {len(removed)} 份" if removed else "")
+    msg = f"轻量备份完成: {os.path.basename(dst)} ({size_kb} KB)，当前共 {min(len(backups), KEEP)} 份" + \
+          (f"，已删除旧备份 {len(removed)} 份" if removed else "")
+
+    # 心跳报平安（失败不影响备份本身）
+    if HEARTBEAT_URL:
+        try:
+            with urllib.request.urlopen(HEARTBEAT_URL, timeout=10) as resp:
+                if resp.status != 200:
+                    print(f"心跳上报失败: HTTP {resp.status}", file=sys.stderr)
+        except Exception as e:
+            print(f"心跳上报失败: {e}", file=sys.stderr)
+    return msg
 
 
 if __name__ == "__main__":
