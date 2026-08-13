@@ -50,6 +50,11 @@
 ### 📊 探活延迟历史
 - 管理页探活规则可查看 24 小时延迟趋势曲线（判断稳定性/网络抖动）
 
+### 🛡 状态徽章
+- 公开实时状态 SVG（无需登录），可嵌入教程 / 论坛 / README
+- 在线绿色 / 离线红色，显示 24h 可用率：`https://dashboard.dfshmily.icu/api/badge/oracle.svg`
+- Markdown 用法：`![服务器状态](https://dashboard.dfshmily.icu/api/badge/oracle.svg)`
+
 ### 📊 图表事件标注（Grafana Annotations 风格）
 - 详情页趋势图上，告警🚨 / 离线⚠️ / 恢复✅ 自动画成彩色虚线竖线，维护窗口显示紫色高亮区域
 - 悬停竖线可查看事件详情；时间粒度切换时自动加载对应窗口的事件
