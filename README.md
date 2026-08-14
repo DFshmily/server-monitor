@@ -228,6 +228,8 @@ python main.py
 - Agent → Backend 使用 `MONITOR_API_KEY` 请求头认证
 - 生产环境建议通过 Nginx 反向代理 + HTTPS（如 Cloudflare CDN）对外提供服务
 - 数据库文件默认位于 `/var/lib/server-monitor/`
+- 登录/注册接口安全：JWT 独立密钥（`MONITOR_JWT_SECRET`）、CORS 仅放行本站域名、生产环境关闭 API 文档（`/docs`）、登录按邮箱 5 次/15 分钟与按 IP 10 次/15 分钟锁定、验证码发送按 IP 限流（防邮箱轰炸）、验证码验证尝试限流（防爆破）
+- 建议 Nginx 层对 `/api/auth/` 加 `limit_req` 限流（参考 `deploy/nginx-rate-limit.conf` 或仓库 issue）
 
 ## 📄 License
 
