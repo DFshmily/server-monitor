@@ -22,6 +22,37 @@ CODE_TTL_SECONDS = 600  # 10 min
 CODE_RESEND_SECONDS = 60  # min interval between sends
 
 
+# ── 轻量内存限流器(单进程 uvicorn 可用; 重启清零可接受) ───────────
+class _SlidingWindow:
+    """Sliding-window rate limiter: max N events per window seconds per key."""
+    def __init__(self, limit: int, window: int):
+        self.limit = limit
+        self.window = window
+        self._events: dict[str, list[int]] = {}
+
+    def allow(self, key: str) -> tuple[bool, int]:
+        now = int(time.time())
+        ts = [t for t in self._events.get(key, []) if now - t < self.window]
+        self._events[key] = ts
+        if len(ts) >= self.limit:
+            return False, max(self.window - (now - ts[0]), 1)
+        ts.append(now)
+        return True, 0
+
+
+send_code_ip_limiter = _SlidingWindow(limit=5, window=600)   # 每 IP 10 分钟最多 5 次
+code_try_limiter = _SlidingWindow(limit=5, window=600)       # 每邮箱 10 分钟最多 5 次验证
+
+
+def _client_ip(request: Request) -> str:
+    """Client IP: Cloudflare sets CF-Connecting-IP; fall back to XFF/socket."""
+    ip = request.headers.get("cf-connecting-ip") or request.headers.get(
+        "x-forwarded-for", "").split(",")[0].strip()
+    if not ip or ip == "unknown":
+        ip = request.client.host if request.client else ""
+    return ip
+
+
 # ── Schemas ───────────────────────────────────────────────────────
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -102,7 +133,7 @@ async def require_root_admin(user: dict = Depends(get_current_user)):
 
 # ── Public: send code / register / login ──────────────────────────
 @router.post("/send-code")
-async def send_code(req: SendCodeRequest):
+async def send_code(req: SendCodeRequest, request: Request):
     """Validate invite code, then email a 6-digit verification code."""
     db = await get_db()
     email = req.email.lower()
@@ -133,6 +164,11 @@ async def send_code(req: SendCodeRequest):
     last = await cur.fetchone()
     if last and now - last["created_at"] < CODE_RESEND_SECONDS:
         wait = CODE_RESEND_SECONDS - (now - last["created_at"])
+        raise HTTPException(status_code=429, detail=f"发送太频繁，请 {wait} 秒后再试")
+
+    # 3b. 按 IP 限流: 防止换邮箱轰炸(邮箱轰炸类攻击)
+    ok, wait = send_code_ip_limiter.allow(_client_ip(request))
+    if not ok:
         raise HTTPException(status_code=429, detail=f"发送太频繁，请 {wait} 秒后再试")
 
     # 4. Generate + store + send
@@ -177,6 +213,10 @@ async def register(req: RegisterRequest):
         raise HTTPException(status_code=400, detail="邀请码已过期")
 
     # 3. Validate email verification code (latest unused, unexpired)
+    #    防爆破: 每邮箱 10 分钟最多 5 次验证尝试
+    ok, wait = code_try_limiter.allow(email)
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"验证尝试过多，请 {wait} 秒后再试")
     cur = await db.execute(
         "SELECT * FROM email_codes WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1",
         (email,),

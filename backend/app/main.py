@@ -76,14 +76,15 @@ async def lifespan(app: FastAPI):
     await close_db()
 
 
-app = FastAPI(title="Server Monitor", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Server Monitor", version="1.0.0", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)  # 生产环境关闭 API 文档
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://dashboard.dfshmily.icu"],  # 同源部署，CORS 仅放行本站
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # API routes
