@@ -138,12 +138,8 @@ async def send_code(req: SendCodeRequest, request: Request):
     db = await get_db()
     email = req.email.lower()
 
-    # 1. Email not already registered
-    cur = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
-    if await cur.fetchone():
-        raise HTTPException(status_code=400, detail="该邮箱已注册")
-
-    # 2. Invite code valid & unused & not expired
+    # 1. Invite code valid & unused & not expired
+    #    先验证邀请码再查邮箱，防止无有效邀请码者枚举已注册邮箱
     cur = await db.execute(
         "SELECT * FROM invites WHERE code = ?", (req.invite_code.strip().upper(),)
     )
@@ -154,6 +150,11 @@ async def send_code(req: SendCodeRequest, request: Request):
         raise HTTPException(status_code=400, detail="邀请码已被使用")
     if inv["expires_at"] < int(time.time()):
         raise HTTPException(status_code=400, detail="邀请码已过期")
+
+    # 2. Email not already registered
+    cur = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if await cur.fetchone():
+        raise HTTPException(status_code=400, detail="该邮箱已注册")
 
     # 3. Rate limit: at most one code per 60s per email
     now = int(time.time())
@@ -195,12 +196,8 @@ async def register(req: RegisterRequest):
     db = await get_db()
     email = req.email.lower()
 
-    # 1. Check email not taken
-    cur = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
-    if await cur.fetchone():
-        raise HTTPException(status_code=400, detail="该邮箱已注册")
-
-    # 2. Validate invite code (unused & not expired)
+    # 1. Validate invite code (unused & not expired)
+    #    先验证邀请码再查邮箱，防止无有效邀请码者枚举已注册邮箱
     cur = await db.execute(
         "SELECT * FROM invites WHERE code = ?", (req.invite_code.strip().upper(),)
     )
@@ -211,6 +208,11 @@ async def register(req: RegisterRequest):
         raise HTTPException(status_code=400, detail="邀请码已被使用")
     if inv["expires_at"] < int(time.time()):
         raise HTTPException(status_code=400, detail="邀请码已过期")
+
+    # 2. Check email not taken
+    cur = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if await cur.fetchone():
+        raise HTTPException(status_code=400, detail="该邮箱已注册")
 
     # 3. Validate email verification code (latest unused, unexpired)
     #    防爆破: 每邮箱 10 分钟最多 5 次验证尝试
