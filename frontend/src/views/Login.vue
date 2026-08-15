@@ -181,7 +181,8 @@ onUnmounted(() => {
       </div>
 
       <!-- 登录模式 -->
-      <form v-if="mode === 'login'" class="auth-form" @submit.prevent="handleLogin">
+      <!-- novalidate: 禁用浏览器内置校验(Safari 会弹英文 pattern 报错), 统一走应用层中文校验 -->
+      <form v-if="mode === 'login'" class="auth-form" novalidate @submit.prevent="handleLogin">
         <div class="field">
           <label>邮箱</label>
           <div class="input-wrap">
@@ -209,7 +210,7 @@ onUnmounted(() => {
       </form>
 
       <!-- 注册模式 -->
-      <form v-else class="auth-form" @submit.prevent="handleRegister">
+      <form v-else class="auth-form" novalidate @submit.prevent="handleRegister">
         <div class="step-indicator">
           <span class="step-dot" :class="{ active: true }">1</span>
           <span class="step-line"></span>
