@@ -601,24 +601,54 @@ def get_custom_metrics() -> dict:
 
 
 # ── apt 可升级包数量（安全更新提醒）───────────────────────────────
-_apt_cache: dict = {"ts": 0, "count": 0, "ok": False}
+_apt_cache: dict = {"ts": 0, "count": 0, "ok": False, "packages": []}
 APT_REFRESH_SECONDS = 3600  # 每小时查一次（apt list 有点慢）
 
 
+def parse_apt_upgradable(output: str) -> list:
+    """解析 `apt list --upgradable` 输出,返回 [{name, version, old_version}] 列表。
+    行格式: 包名/发行版 新版本 架构 [upgradable from: 旧版本]
+    """
+    pkgs = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("listing"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name = parts[0].split("/")[0]
+        version = parts[1]
+        old_version = None
+        # 找 "[upgradable from: xxx]"
+        up_idx = line.find("[upgradable from:")
+        if up_idx >= 0:
+            rest = line[up_idx + len("[upgradable from:"):]
+            old_version = rest.split("]")[0].strip()
+        pkgs.append({"name": name, "version": version, "old_version": old_version})
+    return pkgs
+
+
 def get_apt_updates() -> dict:
-    """统计 apt 可升级包数量（Debian/Ubuntu；非 apt 系统返回 0）。"""
+    """统计 apt 可升级包及其列表（Debian/Ubuntu；非 apt 系统返回 0）。"""
     now = time.time()
     if now - _apt_cache["ts"] < APT_REFRESH_SECONDS:
         return dict(_apt_cache)
     try:
         proc = subprocess.run(
-            "apt list --upgradable 2>/dev/null | tail -n +2 | wc -l",
+            "apt list --upgradable 2>/dev/null",
             shell=True, capture_output=True, text=True, timeout=20,
         )
-        count = int((proc.stdout or "0").strip() or 0)
-        _apt_cache.update(ts=now, count=count, ok=True)
+        raw = proc.stdout or ""
+        count = len([l for l in raw.splitlines() if l.strip() and not l.lower().startswith("listing")])
+        # 采集具体包列表(供管理面板展示哪些软件待更新)
+        packages = parse_apt_upgradable(raw)
+        # 适度截断:最多记录 200 个,避免 payload 过大
+        if len(packages) > 200:
+            packages = packages[:200]
+        _apt_cache.update(ts=now, count=count, ok=True, packages=packages)
     except Exception:
-        _apt_cache.update(ts=now, count=0, ok=False)
+        _apt_cache.update(ts=now, count=0, ok=False, packages=[])
     return dict(_apt_cache)
 
 
