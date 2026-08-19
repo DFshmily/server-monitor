@@ -431,24 +431,6 @@ onUnmounted(() => {
           {{ aptCount }}
         </div>
         <div class="stat-label">待更新</div>
-        <div v-if="aptPackages.length > 0" class="stat-sub warning">点击查看详情 ⬇</div>
-      </div>
-
-      <!-- 待更新软件列表 -->
-      <div v-if="aptPackages.length > 0" class="apt-update-panel glass-card animate-in">
-        <div class="apt-panel-header">
-          <span class="apt-panel-title">🔄 待更新软件 ({{ aptCount }})</span>
-        </div>
-        <div class="apt-panel-list">
-          <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row"
-               :title="pkg.old_version ? `旧版本 ${pkg.old_version} → 新版本 ${pkg.version}` : `新版本 ${pkg.version}`">
-            <span class="apt-pkg">{{ pkg.name }}</span>
-            <span class="apt-ver">{{ pkg.version }}</span>
-          </div>
-          <div v-if="aptCount > aptPackages.length" class="apt-more">
-            … 还有 {{ aptCount - aptPackages.length }} 个未显示
-          </div>
-        </div>
       </div>
       <div class="stat-card glass-card">
         <div class="stat-value load">{{ load1 }}</div>
@@ -641,6 +623,20 @@ onUnmounted(() => {
       <!-- Services -->
       <template v-if="selectedTab === 'services'">
         <ServiceStatus class="animate-in" :services="servicesList" />
+        <!-- 待更新软件列表 -->
+        <div v-if="aptPackages.length > 0" class="apt-section glass-card animate-in">
+          <h3 class="chart-title">🔄 待更新软件 ({{ aptCount }})</h3>
+          <div class="apt-panel-list">
+            <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row"
+                 :title="pkg.old_version ? `旧版本 ${pkg.old_version} → 新版本 ${pkg.version}` : `新版本 ${pkg.version}`">
+              <span class="apt-pkg">{{ pkg.name }}</span>
+              <span class="apt-ver">{{ pkg.version }}</span>
+            </div>
+            <div v-if="aptCount > aptPackages.length" class="apt-more">
+              … 还有 {{ aptCount - aptPackages.length }} 个未显示
+            </div>
+          </div>
+        </div>
       </template>
 
       <!-- Docker -->
@@ -811,26 +807,19 @@ onUnmounted(() => {
   color: var(--text-tertiary);
   margin-top: 2px;
 }
-.stat-sub.warning { color: var(--status-orange, #ff9500); }
 
 /* 待更新软件列表 */
-.apt-update-panel {
-  padding: 14px 16px;
-}
-.apt-panel-header {
-  margin-bottom: 10px;
-}
-.apt-panel-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
+.apt-section {
+  padding: 18px 20px;
+  margin-top: 16px;
 }
 .apt-panel-list {
-  max-height: 260px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   padding: 6px 8px;
+  margin-top: 12px;
 }
 .apt-row {
   display: flex;
