@@ -40,6 +40,7 @@ const tabs = [
   { key: 'network', label: '网络' },
   { key: 'process', label: '进程' },
   { key: 'services', label: '服务' },
+  { key: 'updates', label: '待更新' },
   { key: 'docker', label: 'Docker' }
 ]
 
@@ -467,6 +468,9 @@ onUnmounted(() => {
         <span v-if="tab.key === 'services' && servicesFailedCount > 0" class="tab-badge">
           {{ servicesFailedCount }}
         </span>
+        <span v-if="tab.key === 'updates' && aptCount > 0" class="tab-badge warning">
+          {{ aptCount }}
+        </span>
       </div>
     </div>
 
@@ -623,7 +627,10 @@ onUnmounted(() => {
       <!-- Services -->
       <template v-if="selectedTab === 'services'">
         <ServiceStatus class="animate-in" :services="servicesList" />
-        <!-- 待更新软件列表 -->
+      </template>
+
+      <!-- 待更新软件 -->
+      <template v-if="selectedTab === 'updates'">
         <div v-if="aptPackages.length > 0" class="apt-section glass-card animate-in">
           <h3 class="chart-title">🔄 待更新软件 ({{ aptCount }})</h3>
           <div class="apt-panel-list">
@@ -636,6 +643,10 @@ onUnmounted(() => {
               … 还有 {{ aptCount - aptPackages.length }} 个未显示
             </div>
           </div>
+        </div>
+        <div v-else class="apt-section glass-card animate-in">
+          <h3 class="chart-title">🔄 待更新软件</h3>
+          <div class="empty">✅ 没有待更新软件</div>
         </div>
       </template>
 

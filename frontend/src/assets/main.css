@@ -208,6 +208,9 @@ body {
   font-weight: 700;
   line-height: 1;
 }
+.tab-badge.warning {
+  background: var(--status-orange, #ff9500);
+}
 
 .tab-item:hover {
   color: var(--text-primary);
