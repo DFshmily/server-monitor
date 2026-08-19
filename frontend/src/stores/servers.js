@@ -105,11 +105,31 @@ export const useServersStore = defineStore('servers', () => {
     }
   }
 
+  let pollTimer = null
+  const POLL_INTERVAL = 15000   // 匿名模式轮询间隔(秒)
+
+  function startPolling() {
+    if (pollTimer) return
+    pollTimer = setInterval(async () => {
+      for (const name of Object.keys(servers.value)) {
+        await fetchLatest(name)
+      }
+    }, POLL_INTERVAL)
+  }
+
+  function stopPolling() {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+
   function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) return
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${location.host}/ws`
+    // 鉴权：登录用户带 JWT 连接；匿名连接会被后端以 4401 拒绝，
+    // onclose 里降级为轮询公开(脱敏)数据，首页卡片照常工作。
+    const token = localStorage.getItem('monitor_token')
+    const wsUrl = `${protocol}//${location.host}/ws${token ? `?token=${token}` : ''}`
 
     ws = new WebSocket(wsUrl)
 
@@ -142,10 +162,18 @@ export const useServersStore = defineStore('servers', () => {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       connected.value = false
       clearInterval(heartbeatTimer)
+      if (event.code === 4401) {
+        // 未登录(或 token 无效)：不重连 WS，降级为轮询公开数据
+        console.log('WebSocket unauthorized, falling back to polling')
+        reconnectAttempts = 0
+        startPolling()
+        return
+      }
       console.log('WebSocket disconnected, reconnecting...')
+      stopPolling()
       scheduleReconnect()
     }
 
@@ -170,6 +198,7 @@ export const useServersStore = defineStore('servers', () => {
   function disconnectWebSocket() {
     clearTimeout(reconnectTimer)
     clearInterval(heartbeatTimer)
+    stopPolling()
     if (ws) {
       ws.onclose = null // suppress auto-reconnect during manual teardown
       ws.close()

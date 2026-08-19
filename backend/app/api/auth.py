@@ -11,7 +11,7 @@ from app.core.auth import (
     generate_invite_code, make_invite_expiry,
 )
 from app.core.mailer import send_verification_code
-from app.core.config import SMTP_USER
+from app.core.config import SMTP_USER, DEV_MODE
 from app.core.database import audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -181,9 +181,10 @@ async def send_code(req: SendCodeRequest, request: Request):
     await db.commit()
 
     if not SMTP_USER:
-        # Dev mode: return the code in the response so setup is testable
-        # without a configured SMTP account. Remove for production.
-        return {"ok": True, "dev_code": code, "message": "SMTP 未配置，验证码(仅开发模式): " + code}
+        if DEV_MODE:
+            # 开发模式显式开启时才回显验证码（生产环境 fail-closed）
+            return {"ok": True, "dev_code": code, "message": "SMTP 未配置，验证码(仅开发模式): " + code}
+        raise HTTPException(status_code=500, detail="邮件服务未配置，请联系管理员")
 
     ok = send_verification_code(email, code)
     if not ok:

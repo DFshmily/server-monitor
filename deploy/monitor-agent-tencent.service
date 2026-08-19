@@ -19,7 +19,8 @@ WorkingDirectory=/home/ubuntu/server-monitor/agent
 Environment=MONITOR_BACKEND_URL=https://dashboard.dfshmily.icu
 Environment=MONITOR_INTERVAL=5
 Environment=MONITOR_SERVER_NAME=tencent
-Environment=MONITOR_API_KEY=monitor-secret-key-2026
+# 密钥放 /etc/default/server-monitor-agent（不进仓库）
+EnvironmentFile=/etc/default/server-monitor-agent
 Environment=MONITOR_CERT_DOMAINS=dashboard.dfshmily.icu,dfshmily.icu
 Environment=MONITOR_TRAFFIC_TZ=shanghai
 ExecStart=/home/ubuntu/server-monitor/agent/venv/bin/python main.py

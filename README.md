@@ -211,7 +211,9 @@ python main.py
 | `MONITOR_BACKEND_URL` | 后端地址 | `http://localhost:8000` |
 | `MONITOR_INTERVAL` | 采集间隔（秒） | `2` |
 | `MONITOR_SERVER_NAME` | 服务器名称标识 | 自动检测 hostname |
-| `MONITOR_API_KEY` | Agent 认证密钥 | `default-key` |
+| `MONITOR_API_KEY` | Agent 认证密钥（勿提交进仓库） | `default-key` |
+| `MONITOR_ALLOWED_SERVERS` | 允许上报的 agent server_name 白名单（逗号分隔） | `oracle,tencent` |
+| `MONITOR_DEV_MODE` | 开发模式：`1` 时未配 SMTP 才回显验证码 | `0` |
 | `MONITOR_DB` | SQLite 数据库路径 | `/var/lib/server-monitor/data.db` |
 | `MONITOR_HOST` | 后端监听地址 | `0.0.0.0` |
 | `MONITOR_PORT` | 后端监听端口 | `8000` |
@@ -230,6 +232,11 @@ python main.py
 - 数据库文件默认位于 `/var/lib/server-monitor/`
 - 登录/注册接口安全：JWT 独立密钥（`MONITOR_JWT_SECRET`）、CORS 仅放行本站域名、生产环境关闭 API 文档（`/docs`）、登录按邮箱 5 次/15 分钟与按 IP 10 次/15 分钟锁定、验证码发送按 IP 限流（防邮箱轰炸）、验证码验证尝试限流（防爆破）、`/send-code` 与注册先校验邀请码再查邮箱（防邮箱枚举）
 - 建议 Nginx 层对 `/api/auth/` 加 `limit_req` 限流（参考 `deploy/nginx-rate-limit.conf`，本仓库已附模板）
+- **WebSocket 实时推送需鉴权**：连接时带 `?token=<JWT>`，无效/被禁用账号一律拒绝；未登录前端自动降级为轮询公开（脱敏）数据
+- **匿名接口白名单脱敏**：`/api/servers/{name}/latest` 未登录仅返回首页卡片所需字段（CPU/内存/磁盘/负载/网速/流量/服务数/运行时长），hostname、证书清单、进程列表、Docker、自定义监控等一律需登录
+- **Agent server_name 白名单**：即使 API key 泄露，非白名单服务器的上报也会被拒绝（`MONITOR_ALLOWED_SERVERS`），防止伪造监控数据
+- **禁用账号令牌即时失效**：`require_user` 与 WebSocket 均查库校验账号状态，封禁后未过期 token 也不可用
+- **部署文件不含真实密钥**：systemd unit 使用 `EnvironmentFile` 引用 `/etc/default/server-monitor`（不进仓库），模板中的密钥仅是占位符
 - 对外可叠加 Cloudflare 免费防护：WAF 托管规则集（Log4j/Shellshock/WordPress 等漏洞特征拦截）+ WAF 自定义规则（拦截已知机器人 UA）+ 非中国区 IP 访问登录接口托管质询（challenge 在边缘拦截海外爆破）
 
 ## 📄 License

@@ -20,7 +20,7 @@ import urllib.request
 
 SRC = os.environ.get("MONITOR_DB", "/var/lib/server-monitor/data.db")
 BACKUP_DIR = "/var/lib/server-monitor/backups"
-KEEP = 1  # 只保留最近 1 份，更早的自动删除
+KEEP = 7  # 保留最近 7 份，更早的自动删除
 HEARTBEAT_URL = os.environ.get("HEARTBEAT_URL", "")  # 备份成功后的心跳通知
 
 # 关键表：账号、邀请码、规则、审计、探活配置/结果、别名

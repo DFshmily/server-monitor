@@ -11,6 +11,14 @@ DB_PATH = os.environ.get("MONITOR_DB", "/var/lib/server-monitor/data.db")
 # Auth
 API_KEY = os.environ.get("MONITOR_API_KEY", "default-key")
 
+# Agent server_name whitelist: only these agents may push metrics.
+# Prevents data poisoning with a leaked key (key alone is not enough).
+ALLOWED_AGENT_SERVERS = {
+    x.strip()
+    for x in os.environ.get("MONITOR_ALLOWED_SERVERS", "oracle,tencent").split(",")
+    if x.strip()
+}
+
 # JWT (fallback: derive from API_KEY so it stays stable across restarts)
 JWT_SECRET = os.environ.get("MONITOR_JWT_SECRET", f"jwt-{API_KEY}-salt-2026")
 JWT_EXPIRE_SECONDS = int(os.environ.get("MONITOR_JWT_EXPIRE", "86400"))  # 24h default
@@ -28,6 +36,10 @@ BARK_DEVICE = os.environ.get("MONITOR_BARK_DEVICE", "")    # optional device tok
 # Monthly traffic quota for traffic_used_percent alerts (GiB per server).
 # Oracle free tier e.g. 10 TiB outbound = 10240 GiB. 0 = disable quota check.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
+
+# Dev mode: ONLY set for local development. When False, verification codes
+# are never returned in API responses (fails closed if SMTP is misconfigured).
+DEV_MODE = os.environ.get("MONITOR_DEV_MODE", "0") == "1"
 
 # SMTP for email verification codes
 SMTP_HOST = os.environ.get("MONITOR_SMTP_HOST", "smtp.qq.com")

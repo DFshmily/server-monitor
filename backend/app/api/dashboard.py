@@ -16,17 +16,12 @@ class AliasUpdate(BaseModel):
     alias: str
 
 
-async def verify_token(authorization: str = Header(None)):
-    """Require Bearer token for write endpoints."""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-
-
 async def optional_user(authorization: str = Header(None)) -> dict | None:
-    """Return user dict if a valid JWT is present, else None (public access)."""
+    """Return user dict if a valid JWT is present, else None (public access).
+
+    与 get_current_user 一致：查库校验账号仍存在且未禁用，
+    防止被禁用/删除用户的未过期 token 继续访问受保护数据。
+    """
     if not authorization:
         return None
     parts = authorization.split()
@@ -35,11 +30,19 @@ async def optional_user(authorization: str = Header(None)) -> dict | None:
     payload = decode_token(parts[1])
     if not payload:
         return None
-    return {"email": payload.get("sub"), "role": payload.get("role")}
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT id, email, role, disabled FROM users WHERE email = ?",
+        (payload.get("sub"),),
+    )
+    row = await cur.fetchone()
+    if not row or row["disabled"]:
+        return None
+    return {"email": row["email"], "role": row["role"]}
 
 
 async def require_user(authorization: str = Header(None)) -> dict:
-    """Require a valid JWT (any logged-in user)."""
+    """Require a valid JWT of an active (non-disabled) user."""
     user = await optional_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="请先登录")
@@ -114,18 +117,38 @@ async def server_latest(name: str, user: dict | None = Depends(optional_user)):
         raise HTTPException(status_code=404, detail="Server not found")
     data = json.loads(row["data"])
 
-    # Strip sensitive details for anonymous visitors
+    # Anonymous visitors: allowlist only the fields the public homepage
+    # cards actually render (cpu / memory / disk / load / network rates /
+    # traffic_month / services summary / uptime / apt count).
+    # Anything else (hostname, certificates, docker, processes, custom,
+    # system details...) stays login-only. Allowlist > denylist: new agent
+    # fields are private by default.
     if not user:
-        data = dict(data)
-        data.pop("hostname", None)
-        if "services" in data:
-            data["services"] = {
-                "total": data["services"].get("total", 0),
-                "failed": data["services"].get("failed", 0),
-                "running": data["services"].get("running", 0),
-            }
-        if "processes" in data:
-            data["processes"] = {"top_cpu": [], "top_memory": []}
+        src = data
+        data = {
+            "timestamp": src.get("timestamp"),
+            "agent_version": src.get("agent_version"),
+            "cpu": src.get("cpu"),
+            "memory": src.get("memory"),
+            "disk": src.get("disk"),
+            "load": src.get("load"),
+            "network": {
+                k: v for k, v in (src.get("network") or {}).items()
+                if k in ("total_recv_rate", "total_sent_rate",
+                         "total_bytes_recv", "total_bytes_sent",
+                         "lifetime_bytes_recv", "lifetime_bytes_sent",
+                         "total_connections", "traffic_month")
+            },
+            "traffic_month": src.get("traffic_month"),
+            "services": {
+                "total": (src.get("services") or {}).get("total", 0),
+                "failed": (src.get("services") or {}).get("failed", 0),
+                "running": (src.get("services") or {}).get("running", 0),
+            },
+            "system": {"uptime_seconds": (src.get("system") or {}).get("uptime_seconds")},
+            "apt_updates": {"ok": (src.get("apt_updates") or {}).get("ok"),
+                            "count": (src.get("apt_updates") or {}).get("count")},
+        }
     return data
 
 

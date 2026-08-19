@@ -3,7 +3,7 @@ import asyncio
 import os
 import time
 
-os.environ.setdefault("MONITOR_API_KEY", "monitor-secret-key-2026")
+os.environ.setdefault("MONITOR_API_KEY", "test-key-not-a-secret")
 
 from app.core.database import get_db, audit_log
 from app.services.alerts import check_threshold_rules, check_offline, _send_telegram

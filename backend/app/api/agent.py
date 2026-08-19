@@ -3,7 +3,7 @@ import json
 import time
 from fastapi import APIRouter, Depends, HTTPException, Header
 from typing import Optional
-from app.core.config import API_KEY
+from app.core.config import API_KEY, ALLOWED_AGENT_SERVERS
 from app.core.database import get_db
 from app.models.metrics import AgentPayload
 from app.api.ws import broadcast
@@ -22,6 +22,9 @@ async def verify_token(authorization: str = Header(None)):
 @router.post("/metrics", dependencies=[Depends(verify_token)])
 async def receive_metrics(payload: AgentPayload):
     """Receive metrics from a monitoring agent."""
+    if payload.server_name not in ALLOWED_AGENT_SERVERS:
+        # 合法 key 也只允许白名单内的 agent 上报（防伪造数据）
+        raise HTTPException(status_code=403, detail="Unknown server_name")
     db = await get_db()
     timestamp = payload.metrics.get("timestamp", int(time.time()))
     data_json = json.dumps(payload.metrics)

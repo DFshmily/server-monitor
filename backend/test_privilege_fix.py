@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 
 # Must match the systemd unit: JWT_SECRET derives from MONITOR_API_KEY.
-os.environ.setdefault("MONITOR_API_KEY", "monitor-secret-key-2026")
+os.environ.setdefault("MONITOR_API_KEY", "test-key-not-a-secret")
 
 from app.core.database import get_db
 from app.core.auth import hash_password, create_token

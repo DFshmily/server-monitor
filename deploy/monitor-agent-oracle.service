@@ -9,7 +9,8 @@ WorkingDirectory=/home/ubuntu/server-monitor/agent
 Environment=MONITOR_BACKEND_URL=http://127.0.0.1:8000
 Environment=MONITOR_INTERVAL=2
 Environment=MONITOR_SERVER_NAME=oracle
-Environment=MONITOR_API_KEY=monitor-secret-key-2026
+# 密钥放 /etc/default/server-monitor-agent（不进仓库）
+EnvironmentFile=/etc/default/server-monitor-agent
 ExecStart=/home/ubuntu/server-monitor/agent/venv/bin/python main.py
 Restart=always
 RestartSec=5
