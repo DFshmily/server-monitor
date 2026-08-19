@@ -642,11 +642,13 @@ onUnmounted(() => {
             <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-item">
               <div class="apt-info">
                 <span class="apt-name">{{ pkg.name }}</span>
-                <span class="apt-desc">
-                  {{ pkg.old_version || '—' }} → {{ pkg.version || '—' }}
+                <span class="apt-vers">
+                  <span class="apt-old">{{ pkg.old_version || '—' }}</span>
+                  <span class="apt-arrow">→</span>
+                  <span class="apt-new">{{ pkg.version || '—' }}</span>
                 </span>
               </div>
-              <span class="apt-badge">{{ pkg.version || '待更新' }}</span>
+              <span class="apt-badge">待更新</span>
             </div>
             <div v-if="aptCount > aptPackages.length" class="apt-more">
               … 还有 {{ aptCount - aptPackages.length }} 个未显示
@@ -859,6 +861,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  margin-right: 12px;
 }
 .apt-name {
   font-size: 13px;
@@ -869,12 +872,27 @@ onUnmounted(() => {
   white-space: nowrap;
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
 }
-.apt-desc {
+.apt-vers {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 11px;
+  font-family: 'SF Mono', 'JetBrains Mono', monospace;
+}
+.apt-old {
   color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
+}
+.apt-arrow {
+  color: var(--status-orange, #ff9500);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.apt-new {
+  color: var(--status-green, #34c759);
+  font-weight: 600;
+  word-break: break-all;
 }
 .apt-badge {
   display: inline-flex;
@@ -887,9 +905,6 @@ onUnmounted(() => {
   flex-shrink: 0;
   background: rgba(255, 149, 0, 0.12);
   color: var(--status-orange, #ff9500);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .apt-more {
   padding: 8px 4px 2px;
