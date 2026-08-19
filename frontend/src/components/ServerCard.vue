@@ -117,12 +117,6 @@ const monthTip = computed(() => {
 
 const cpuCores = computed(() => latest.value.cpu?.cores ?? 0)
 const aptCount = computed(() => (latest.value.apt_updates?.ok ? latest.value.apt_updates.count : null))
-// 待更新包列表(仅登录用户可见; 匿名白名单只含 count)
-const aptPackages = computed(() => {
-  const pkgs = latest.value.apt_updates?.packages
-  return Array.isArray(pkgs) ? pkgs : []
-})
-const aptExpanded = ref(false)
 
 const uptimeSeconds = computed(() => latest.value.system?.uptime_seconds ?? 0)
 const uptimeFormatted = computed(() => {
@@ -382,23 +376,11 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="detail-item apt-item" v-if="aptCount !== null">
+        <div class="detail-item" v-if="aptCount !== null">
           <div class="detail-icon">🔄</div>
           <div class="detail-content">
             <div class="detail-label">待更新</div>
-            <div class="detail-value"
-                 :class="{ 'text-warning': aptCount > 0, 'apt-toggle': aptPackages.length > 0 }"
-                 @click.stop="aptExpanded = !aptExpanded">
-              {{ aptCount }} 个<span v-if="aptPackages.length > 0" class="apt-caret">{{ aptExpanded ? ' ▴' : ' ▾' }}</span>
-            </div>
-            <!-- 待更新软件列表(展开显示) -->
-            <div v-if="aptExpanded && aptPackages.length > 0" class="apt-list">
-              <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row" :title="(pkg.old_version ? `旧版本 ${pkg.old_version} → 新版本 ${pkg.version}` : `新版本 ${pkg.version}`)">
-                <span class="apt-pkg">{{ pkg.name }}</span>
-                <span class="apt-ver" v-if="pkg.version">v{{ pkg.version }}</span>
-              </div>
-              <div v-if="aptCount > aptPackages.length" class="apt-more">… 还有 {{ aptCount - aptPackages.length }} 个</div>
-            </div>
+            <div class="detail-value" :class="{ 'text-warning': aptCount > 0 }">{{ aptCount }} 个</div>
           </div>
         </div>
       </div>
@@ -771,53 +753,6 @@ onMounted(() => {
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-}
-
-/* 待更新软件列表 */
-.apt-toggle {
-  cursor: pointer;
-  user-select: none;
-}
-.apt-caret {
-  font-size: 10px;
-  opacity: 0.6;
-}
-.apt-list {
-  margin-top: 8px;
-  max-height: 180px;
-  overflow-y: auto;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.02);
-}
-.apt-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 4px;
-  font-size: 11px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
-}
-.apt-row:last-child {
-  border-bottom: none;
-}
-.apt-pkg {
-  font-weight: 600;
-  color: var(--text-primary);
-  word-break: break-all;
-}
-.apt-ver {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-.apt-more {
-  padding: 4px 4px 2px;
-  font-size: 10px;
-  color: var(--text-tertiary);
-  text-align: center;
 }
 
 /* 本月流量 */

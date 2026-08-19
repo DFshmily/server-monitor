@@ -93,6 +93,11 @@ const load15 = computed(() => latest.value.load?.load15 ?? '-')
 const customItems = computed(() => latest.value.custom || {})
 const aptUpdates = computed(() => latest.value.apt_updates || {})
 const aptCount = computed(() => (aptUpdates.value.ok ? aptUpdates.value.count : null))
+// 待更新软件列表(登录用户可见)
+const aptPackages = computed(() => {
+  const pkgs = aptUpdates.value.packages
+  return Array.isArray(pkgs) ? pkgs : []
+})
 
 // 自定义监控项历史曲线
 const customHistory = ref([])
@@ -426,6 +431,24 @@ onUnmounted(() => {
           {{ aptCount }}
         </div>
         <div class="stat-label">待更新</div>
+        <div v-if="aptPackages.length > 0" class="stat-sub warning">点击查看详情 ⬇</div>
+      </div>
+
+      <!-- 待更新软件列表 -->
+      <div v-if="aptPackages.length > 0" class="apt-update-panel glass-card animate-in">
+        <div class="apt-panel-header">
+          <span class="apt-panel-title">🔄 待更新软件 ({{ aptCount }})</span>
+        </div>
+        <div class="apt-panel-list">
+          <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row"
+               :title="pkg.old_version ? `旧版本 ${pkg.old_version} → 新版本 ${pkg.version}` : `新版本 ${pkg.version}`">
+            <span class="apt-pkg">{{ pkg.name }}</span>
+            <span class="apt-ver">{{ pkg.version }}</span>
+          </div>
+          <div v-if="aptCount > aptPackages.length" class="apt-more">
+            … 还有 {{ aptCount - aptPackages.length }} 个未显示
+          </div>
+        </div>
       </div>
       <div class="stat-card glass-card">
         <div class="stat-value load">{{ load1 }}</div>
@@ -787,6 +810,54 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 2px;
+}
+.stat-sub.warning { color: var(--status-orange, #ff9500); }
+
+/* 待更新软件列表 */
+.apt-update-panel {
+  padding: 14px 16px;
+}
+.apt-panel-header {
+  margin-bottom: 10px;
+}
+.apt-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.apt-panel-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+.apt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 4px;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+.apt-row:last-child { border-bottom: none; }
+.apt-pkg {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.apt-ver {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  text-align: right;
+}
+.apt-more {
+  padding: 8px 4px 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 .tab-content { min-height: 300px; }
