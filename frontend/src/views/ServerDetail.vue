@@ -633,11 +633,22 @@ onUnmounted(() => {
       <template v-if="selectedTab === 'updates'">
         <div v-if="aptPackages.length > 0" class="apt-section glass-card animate-in">
           <h3 class="chart-title">🔄 待更新软件 ({{ aptCount }})</h3>
-          <div class="apt-panel-list">
-            <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row"
-                 :title="pkg.old_version ? `旧版本 ${pkg.old_version} → 新版本 ${pkg.version}` : `新版本 ${pkg.version}`">
+          <div class="apt-table">
+            <div class="apt-row apt-head">
+              <span class="apt-pkg">软件包</span>
+              <span class="apt-vers">
+                <span class="apt-old">当前版本</span>
+                <span class="apt-arrow">→</span>
+                <span class="apt-new">待更新版本</span>
+              </span>
+            </div>
+            <div v-for="(pkg, i) in aptPackages" :key="pkg.name + i" class="apt-row">
               <span class="apt-pkg">{{ pkg.name }}</span>
-              <span class="apt-ver">{{ pkg.version }}</span>
+              <span class="apt-vers">
+                <span class="apt-old">{{ pkg.old_version || '—' }}</span>
+                <span class="apt-arrow">→</span>
+                <span class="apt-new">{{ pkg.version || '—' }}</span>
+              </span>
             </div>
             <div v-if="aptCount > aptPackages.length" class="apt-more">
               … 还有 {{ aptCount - aptPackages.length }} 个未显示
@@ -824,8 +835,8 @@ onUnmounted(() => {
   padding: 18px 20px;
   margin-top: 16px;
 }
-.apt-panel-list {
-  max-height: 300px;
+.apt-table {
+  max-height: 400px;
   overflow-y: auto;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
@@ -842,16 +853,49 @@ onUnmounted(() => {
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 .apt-row:last-child { border-bottom: none; }
+.apt-head {
+  font-weight: 700;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
 .apt-pkg {
   font-weight: 600;
   color: var(--text-primary);
   word-break: break-all;
-}
-.apt-ver {
-  font-size: 11px;
-  color: var(--text-tertiary);
   flex-shrink: 0;
+  margin-right: 12px;
+}
+.apt-vers {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
   text-align: right;
+  justify-content: flex-end;
+}
+.apt-old {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apt-arrow {
+  color: var(--status-orange, #ff9500);
+  font-weight: 700;
+}
+.apt-new {
+  color: var(--status-green, #34c759);
+  font-weight: 600;
+  font-size: 12px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .apt-more {
   padding: 8px 4px 2px;
