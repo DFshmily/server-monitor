@@ -45,6 +45,14 @@ function stopRotation() {
   }
 }
 
+// 手动刷新(iOS PWA 无下拉刷新): 重拉服务器列表+最新数据
+async function manualRefresh() {
+  await store.fetchServers()
+  for (const server of serverList.value) {
+    store.fetchLatest(server.name)
+  }
+}
+
 onMounted(async () => {
   await store.fetchServers()
 
@@ -54,7 +62,6 @@ onMounted(async () => {
   }
 
   store.connectWebSocket()
-
   // GSAP title animation
   if (titleRef.value) {
     gsap.from(titleRef.value, {
@@ -84,6 +91,7 @@ onUnmounted(() => {
         <span class="connection-status" :class="{ online: connected }" title="实时数据推送通道">
           <span class="status-dot"></span>
         </span>
+        <button v-if="!kioskMode" class="kiosk-btn" title="手动刷新数据" @click="manualRefresh">↻ 刷新</button>
         <button v-if="!kioskMode" class="kiosk-btn" title="大屏模式（全屏自动轮播）" @click="enterKiosk">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
