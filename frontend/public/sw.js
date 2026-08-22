@@ -1,5 +1,8 @@
 /* DFshmily server-monitor service worker: app-shell cache + network-first API. */
-const CACHE = "dfshmily-monitor-v1";
+/* v2: 导航请求(network/HTML)永不回退到可能过期的缓存 HTML —— 避免 iOS PWA
+   加载旧 index.html 引用已失效的 assets hash 而报
+   "The string did not match the expected pattern"。 */
+const CACHE = "dfshmily-monitor-v2";
 const SHELL = [
   "/",
   "/manifest.json",
@@ -43,18 +46,16 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Navigation & everything else: network-first with cache fallback (offline hint)
+  // Navigation & everything else: network-first; on failure redirect to live origin
+  // (do NOT serve a cached HTML shell — stale asset hashes break the app on iOS PWA)
   if (e.request.mode === "navigate" || url.origin === self.location.origin) {
     e.respondWith(
-      fetch(e.request)
-        .then((resp) => {
-          if (resp.ok && url.pathname === "/") {
-            const copy = resp.clone();
-            caches.open(CACHE).then((c) => c.put("/", copy));
-          }
-          return resp;
-        })
-        .catch(() => caches.match("/"))
+      fetch(e.request).catch(() => {
+        if (url.pathname === "/") {
+          return caches.match("/").then((hit) => hit || Response.error());
+        }
+        return Response.error();
+      })
     );
   }
 });
