@@ -187,7 +187,7 @@ onUnmounted(() => {
           <label>邮箱</label>
           <div class="input-wrap">
             <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 7l9 6 9-6"/></svg>
-            <input v-model="email" type="email" placeholder="your@email.com" autocomplete="email" />
+            <input v-model="email" type="text" inputmode="email" placeholder="your@email.com" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </div>
         </div>
         <div class="field">
@@ -226,7 +226,7 @@ onUnmounted(() => {
             <label>邮箱</label>
             <div class="input-wrap">
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 7l9 6 9-6"/></svg>
-              <input v-model="regEmail" type="email" placeholder="your@email.com" autocomplete="email" />
+              <input v-model="regEmail" type="text" inputmode="email" placeholder="your@email.com" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </div>
           </div>
           <div class="field">
