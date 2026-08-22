@@ -27,6 +27,12 @@ export const useAuthStore = defineStore('auth', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, remember })
     })
+    // Cloudflare 质询/错误页返回 HTML, res.json() 会抛
+    // "The string did not match the expected pattern" —— 拦下来给友好提示
+    const ct = res.headers.get('content-type') || ''
+    if (!ct.includes('application/json')) {
+      throw new Error('网络验证中，请稍等几秒后重试')
+    }
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '登录失败')
     token.value = data.token
@@ -42,6 +48,10 @@ export const useAuthStore = defineStore('auth', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, invite_code: inviteCode })
     })
+    const ct = res.headers.get('content-type') || ''
+    if (!ct.includes('application/json')) {
+      throw new Error('网络验证中，请稍等几秒后重试')
+    }
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '注册失败')
     return data
