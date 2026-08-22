@@ -41,7 +41,8 @@ const tabs = [
   { key: 'process', label: '进程' },
   { key: 'services', label: '服务' },
   { key: 'updates', label: '待更新' },
-  { key: 'docker', label: 'Docker' }
+  { key: 'docker', label: 'Docker' },
+  { key: 'hardware', label: '硬件健康' }
 ]
 
 // 服务异常数角标
@@ -124,6 +125,17 @@ async function loadCustomHistory(item) {
 const processes = computed(() => latest.value.processes?.top_cpu || [])
 const servicesList = computed(() => latest.value.services?.services || [])
 const dockerContainers = computed(() => latest.value.docker?.containers || [])
+
+// ── 硬件健康 (SMART) ──
+const smartDisks = computed(() => {
+  const s = latest.value.disk_smart || {}
+  return Object.entries(s).map(([dev, d]) => ({ dev, ...d }))
+})
+const fmtPowerHours = (h) => {
+  if (h == null) return '—'
+  const days = Math.floor(h / 24)
+  return days > 0 ? `${days} 天 ${h % 24} 小时` : `${h} 小时`
+}
 
 const formatBytes = (bytes) => {
   if (!bytes || bytes === 0) return '0 B'
@@ -675,11 +687,70 @@ onUnmounted(() => {
           </div>
         </div>
       </template>
+
+      <!-- 硬件健康 (SMART) -->
+      <template v-if="selectedTab === 'hardware'">
+        <div class="apt-status glass-card animate-in">
+          <div class="table-header">
+            <h3 class="chart-title">磁盘 S.M.A.R.T. 健康</h3>
+            <div class="header-right">
+              <span class="apt-count">{{ smartDisks.length }} 块物理盘</span>
+            </div>
+          </div>
+          <div v-if="smartDisks.length === 0" class="empty">
+            暂无 SMART 数据 · 云主机虚拟盘或未安装 smartctl 时不采集
+          </div>
+          <div v-for="d in smartDisks" :key="d.dev" class="smart-disk">
+            <div class="smart-head">
+              <span class="smart-dev">{{ d.dev }}</span>
+              <span class="service-badge" :class="d.ok ? 'active' : 'failed'">
+                {{ d.overall || '未知' }}
+              </span>
+            </div>
+            <div class="smart-grid">
+              <div class="smart-item">
+                <span class="smart-label">温度</span>
+                <span class="smart-value">{{ d.temperature != null ? d.temperature + ' °C' : '—' }}</span>
+              </div>
+              <div class="smart-item">
+                <span class="smart-label">重映射扇区</span>
+                <span class="smart-value" :class="{ warn: (d.reallocated_sectors || 0) > 0 }">
+                  {{ d.reallocated_sectors != null ? d.reallocated_sectors : '—' }}
+                </span>
+              </div>
+              <div class="smart-item">
+                <span class="smart-label">待映射扇区</span>
+                <span class="smart-value" :class="{ warn: (d.pending_sectors || 0) > 0 }">
+                  {{ d.pending_sectors != null ? d.pending_sectors : '—' }}
+                </span>
+              </div>
+              <div class="smart-item">
+                <span class="smart-label">通电时长</span>
+                <span class="smart-value">{{ fmtPowerHours(d.power_on_hours) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* SMART 硬件健康 */
+.smart-disk { padding: 14px 0; border-bottom: 1px solid rgba(128,128,128,.15); }
+.smart-disk:last-child { border-bottom: none; }
+.smart-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.smart-dev { font-family: 'SF Mono', Menlo, Consolas, monospace; font-weight: 600; }
+.smart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.smart-item {
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(128,128,128,.08); border-radius: 8px; padding: 8px 12px;
+}
+.smart-label { font-size: 11px; opacity: .6; }
+.smart-value { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; }
+.smart-value.warn { color: #ff9500; font-weight: 700; }
+
 .interval-selector {
   display: flex;
   gap: 4px;

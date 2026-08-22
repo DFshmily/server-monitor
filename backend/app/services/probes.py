@@ -106,6 +106,53 @@ async def _probe_dns(target: str, timeout: int) -> dict:
         return {"ok": False, "latency_ms": latency, "status_code": None, "message": f"解析失败 · {str(e)[:80]}"}
 
 
+def _probe_ssl_sync(target: str, timeout: int) -> dict:
+    """TLS certificate check: handshake to target:443, report days_left.
+
+    Target may be a bare domain ("dfshmily.icu") or domain:port.
+    ok=True while the certificate is valid AND has more than 15 days left,
+    so approaching-expiry turns the probe red before things break.
+    """
+    import ssl as _ssl
+    host, _, port = target.rpartition(":")
+    if not host or not port.isdigit():
+        host, port = target, "443"
+    t0 = time.monotonic()
+    result = {"ok": False, "latency_ms": None, "status_code": None, "message": "", "days_left": None}
+    try:
+        ctx = _ssl.create_default_context()
+        with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host) as tls:
+                raw = tls.getpeercert()
+        cert = dict(raw) if isinstance(raw, dict) else {}
+        not_after_raw = cert.get("notAfter")
+        if not isinstance(not_after_raw, str):
+            result["message"] = "证书数据异常"
+            return result
+        not_after = _ssl.cert_time_to_seconds(not_after_raw)
+        issuer_tuples = cert.get("issuer") or []
+        issuer = ""
+        for part in issuer_tuples:
+            if isinstance(part, tuple) and part and part[0] == "organizationName":
+                issuer = str(part[1])
+                break
+        days_left = int((not_after - time.time()) / 86400)
+        result["days_left"] = days_left
+        result["ok"] = days_left > 15
+        if days_left <= 15:
+            result["message"] = f"证书即将到期：仅剩 {days_left} 天（签发 {issuer or '未知'}）"
+        else:
+            result["message"] = f"证书有效 · 剩 {days_left} 天（{issuer or '未知'} 签发）"
+    except Exception as e:
+        result["message"] = f"证书检查失败 · {str(e)[:100]}"
+    result["latency_ms"] = round((time.monotonic() - t0) * 1000, 1)
+    return result
+
+
+async def _probe_ssl(target: str, timeout: int) -> dict:
+    return await asyncio.to_thread(_probe_ssl_sync, target, timeout)
+
+
 async def _run_probe(rule) -> dict:
     t = rule["type"]
     if t == "http":
@@ -116,6 +163,8 @@ async def _run_probe(rule) -> dict:
         return await _probe_ping(rule["target"], rule["timeout"])
     if t == "dns":
         return await _probe_dns(rule["target"], rule["timeout"])
+    if t == "ssl":
+        return await _probe_ssl(rule["target"], rule["timeout"])
     return {"ok": False, "latency_ms": None, "status_code": None, "message": f"未知探测类型 {t}"}
 
 

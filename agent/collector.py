@@ -25,6 +25,10 @@ _cert_cache: dict = {}
 DOCKER_REFRESH_SECONDS = 30
 _docker_cache: dict = {"at": 0.0, "data": None}
 
+# SMART health cache: smartctl is slow-ish; refresh every 30 min
+SMART_REFRESH_SECONDS = 1800
+_smart_cache: dict = {"at": 0.0, "data": None}
+
 # Monthly traffic quota (GiB) for THIS server; 0/absent = 不监控额度百分比.
 # 每台服务器独立配置(环境变量), 规则阈值可在面板按服务器定制.
 TRAFFIC_QUOTA_GB = float(os.environ.get("MONITOR_TRAFFIC_QUOTA_GB", "0"))
@@ -377,6 +381,7 @@ def get_process_metrics(top_n: int = 10) -> dict:
         "sleeping": sum(1 for p in processes if p['status'] == 'sleeping'),
         "top_cpu": by_cpu,
         "top_memory": by_mem,
+        "all_names": [{"name": p['name']} for p in processes],
     }
 
 
@@ -496,7 +501,7 @@ def get_services_metrics() -> dict:
         return {"total": 0, "failed": 0, "running": 0, "services": []}
 
 
-AGENT_VERSION = "1.7.0"  # bump when agent behavior changes (shown in Admin health panel)
+AGENT_VERSION = "1.8.0"  # bump when agent behavior changes (shown in Admin health panel)
 
 
 # ── 自定义监控项（哪吒风格：agent 定期执行命令上报数值）────────────
@@ -652,6 +657,76 @@ def get_apt_updates() -> dict:
     return dict(_apt_cache)
 
 
+def get_smart_metrics() -> dict:
+    """Disk S.M.A.R.T. health via smartctl (if installed + permitted).
+
+    Returns {device: {ok, temperature, reallocated_sectors, pending_sectors,
+    power_on_hours, overall}}. Missing smartctl / no permission -> {}.
+    Refreshed every SMART_REFRESH_SECONDS.
+    """
+    now = time.time()
+    if now - _smart_cache["at"] < SMART_REFRESH_SECONDS and _smart_cache["data"] is not None:
+        return _smart_cache["data"]
+    data: dict = {}
+    try:
+        # List candidate physical disks (skip loop/zram/ram devices)
+        candidates = []
+        for name in os.listdir("/sys/block"):
+            if name.startswith(("loop", "zram", "ram", "sr")):
+                continue
+            candidates.append(f"/dev/{name}")
+        for dev in candidates:
+            out = {}
+            try:
+                proc = subprocess.run(
+                    ["smartctl", "-A", "-H", "-f", "brief", dev],
+                    capture_output=True, text=True, timeout=15,
+                )
+                text = proc.stdout
+                # Overall health: "SMART overall-health self-assessment test result: PASSED"
+                m = re.search(r"overall-health.*?:\s*(\w+)", text)
+                health = m.group(1) if m else None
+                attrs = {}
+                for line in text.splitlines():
+                    cols = line.split()
+                    if len(cols) >= 10 and cols[0].isdigit():
+                        attrs[cols[1]] = cols[9]  # raw_value column
+                temperature = None
+                for key in ("Temperature_Celsius", "Airflow_Temperature_Cel"):
+                    if key in attrs:
+                        try:
+                            temperature = int(attrs[key])
+                        except ValueError:
+                            pass
+                        break
+                def _int(k):
+                    try:
+                        return int(attrs[k])
+                    except (KeyError, ValueError):
+                        return None
+                out = {
+                    "ok": health == "PASSED",
+                    "overall": health,
+                    "temperature": temperature,
+                    "reallocated_sectors": _int("Reallocated_Sector_Ct") or _int("Reallocated_Event_Count"),
+                    "pending_sectors": _int("Current_Pending_Sector"),
+                    "power_on_hours": _int("Power_On_Hours"),
+                }
+            except FileNotFoundError:
+                _smart_cache["at"] = now  # smartctl not installed; don't retry every sweep
+                _smart_cache["data"] = {}
+                return {}
+            except Exception:
+                out = {}
+            if out:
+                data[dev] = out
+    except Exception:
+        data = {}
+    _smart_cache["at"] = now
+    _smart_cache["data"] = data
+    return data
+
+
 def collect_all() -> dict:
     """Collect all metrics and return as a single dict."""
     net = get_network_metrics()
@@ -672,6 +747,7 @@ def collect_all() -> dict:
         "certificates": get_certificates_metrics(),
         "custom": get_custom_metrics(),
         "apt_updates": get_apt_updates(),
+        "disk_smart": get_smart_metrics(),
     }
 
 

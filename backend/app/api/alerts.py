@@ -19,8 +19,10 @@ VALID_METRICS = {
 
 
 def _valid_metric(metric: str) -> bool:
-    """内置指标或自定义监控项（custom:名称）。"""
-    return metric in VALID_METRICS or metric.startswith("custom:")
+    """内置指标或自定义监控项（custom:名称）或进程守护（process:进程名）。"""
+    return (metric in VALID_METRICS
+            or metric.startswith("custom:")
+            or metric.startswith("process:"))
 VALID_OPS = {">", ">=", "<", "<="}
 
 

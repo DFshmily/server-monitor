@@ -17,6 +17,13 @@ const serverB = ref('')
 const selectedMetric = ref('cpu')
 const selectedInterval = ref('1min')
 
+// 对比模式: 'servers'=双机对比 | 'time'=时段对比(今vs昨 / 本周vs上周)
+const compareMode = ref('servers')
+const timePreset = ref('day')      // 'day' | 'week'
+const serverSingle = ref('')
+
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
 const METRICS = [
   { key: 'cpu', label: 'CPU 使用率', unit: '%', color: '#7c3aed' },
   { key: 'memory', label: '内存使用率', unit: '%', color: '#007aff' },
@@ -75,6 +82,75 @@ function extractValue(data, key) {
 const historyA = ref([])
 const historyB = ref([])
 
+// ── 时段对比: 计算当前/对比两个时间窗(北京时间对齐) ──
+function timeWindows() {
+  const now = Date.now() + 8 * 3600 * 1000  // Beijing
+  const nowSec = Math.floor(Date.now() / 1000)
+  if (timePreset.value === 'day') {
+    const dayMs = 86400 * 1000
+    const todayStart = Math.floor(now / dayMs) * dayMs - 8 * 3600 * 1000  // UTC unix of Beijing midnight
+    return {
+      cur: [Math.floor(todayStart / 1000), nowSec],
+      prev: [Math.floor((todayStart - dayMs) / 1000), Math.floor(todayStart / 1000)],
+    }
+  }
+  // week: 本周(周一起) vs 上周同一时刻
+  const weekMs = 7 * 86400 * 1000
+  const d = new Date(now)
+  const midnight = Math.floor(now / (86400 * 1000)) * (86400 * 1000)
+  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay()
+  const weekStartBeijing = midnight - (dow - 1) * 86400 * 1000
+  const weekStartUnix = Math.floor((weekStartBeijing - 8 * 3600 * 1000) / 1000)
+  return {
+    cur: [weekStartUnix, nowSec],
+    prev: [weekStartUnix - weekMs / 1000, weekStartUnix],
+  }
+}
+
+async function loadTimeCompare() {
+  if (!serverSingle.value) return
+  const { cur, prev } = timeWindows()
+  const interval = timePreset.value === 'day' ? '5min' : '1h'
+  const limit = timePreset.value === 'day' ? 288 : 24 * 8
+  const name = serverSingle.value
+  const [c, p] = await Promise.all([
+    store.fetchHistory(name, interval, limit, cur[0], cur[1]),
+    store.fetchHistory(name, interval, limit, prev[0], prev[1]),
+  ])
+  historyA.value = c || []
+  historyB.value = p || []
+}
+
+// 时段对比的统计摘要: 当前窗口 vs 对比窗口的平均值与变化
+const timeStats = computed(() => {
+  if (!historyA.value.length || !historyB.value.length) return null
+  const avg = (rows) => {
+    const vals = rows.map(r => extractValue(r.data, selectedMetric.value)).filter(v => v !== null && !Number.isNaN(v))
+    if (!vals.length) return null
+    return vals.reduce((s, v) => s + v, 0) / vals.length
+  }
+  const aAvg = avg(historyA.value), bAvg = avg(historyB.value)
+  if (aAvg === null || bAvg === null || bAvg === 0) return { aAvg, bAvg, delta: null }
+  return { aAvg, bAvg, delta: ((aAvg - bAvg) / bAvg) * 100 }
+})
+
+// 时段对比合并数据: 把"对比期"平移到当前期的时刻轴上(按窗口内相对偏移对齐)
+const mergedTimeData = computed(() => {
+  if (!historyA.value.length) return { x: [], a: [], b: [] }
+  const rows = [...historyA.value].sort((p, q) => p.timestamp - q.timestamp)
+  const base = rows[0].timestamp
+  const x = rows.map(r => r.timestamp)
+  const a = rows.map(r => extractValue(r.data, selectedMetric.value))
+  // 对比期按 (自身窗口起点 -> 当前窗口起点) 平移
+  const prevRows = historyB.value.map(r => ({ ts: r.timestamp, v: extractValue(r.data, selectedMetric.value) })).filter(r => r.v !== null)
+  if (!prevRows.length) return { x, a, b: [] }
+  const prevBase = Math.min(...prevRows.map(r => r.ts))
+  const shift = base - prevBase
+  const mapB = new Map(prevRows.map(r => [r.ts + shift, r.v]))
+  const b = x.map(ts => mapB.get(ts) ?? null)
+  return { x, a, b }
+})
+
 async function loadBoth() {
   if (!serverA.value || !serverB.value) return
   const [a, b] = await Promise.all([
@@ -87,6 +163,7 @@ async function loadBoth() {
 
 // 合并两条时间线（时间戳并集，各自缺失点为 null）
 const mergedData = computed(() => {
+  if (compareMode.value === 'time') return mergedTimeData.value
   const tsSet = new Set()
   const mapA = new Map(), mapB = new Map()
   for (const d of historyA.value) { tsSet.add(d.timestamp); mapA.set(d.timestamp, extractValue(d.data, selectedMetric.value)) }
@@ -127,6 +204,13 @@ const formatVal = (v) => {
 function buildOption() {
   const { x, a, b } = mergedData.value
   const isNet = selectedMetric.value.startsWith('net_')
+  const isTimeMode = compareMode.value === 'time'
+  const nameA = isTimeMode
+    ? (timePreset.value === 'day' ? '今天' : '本周')
+    : displayName(serverA.value) || '服务器 A'
+  const nameB = isTimeMode
+    ? (timePreset.value === 'day' ? '昨天' : '上周')
+    : displayName(serverB.value) || '服务器 B'
   return {
     legend: {
       top: 0,
@@ -176,7 +260,7 @@ function buildOption() {
     },
     series: [
       {
-        name: displayName(serverA.value) || '服务器 A',
+        name: nameA,
         type: 'line',
         smooth: true,
         symbol: 'none',
@@ -190,12 +274,12 @@ function buildOption() {
         data: a
       },
       {
-        name: displayName(serverB.value) || '服务器 B',
+        name: nameB,
         type: 'line',
         smooth: true,
         symbol: 'none',
         connectNulls: false,
-        lineStyle: { width: 2.5, color: '#007aff' },
+        lineStyle: { width: 2.5, color: '#007aff', type: isTimeMode ? 'dashed' : 'solid' },
         itemStyle: { color: '#007aff' },
         areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
           { offset: 0, color: 'rgba(0, 122, 255, 0.2)' },
@@ -212,7 +296,21 @@ watch(mergedData, () => {
 }, { deep: true })
 
 watch([serverA, serverB, selectedInterval], () => {
+  if (compareMode.value !== 'servers') return
   if (serverA.value && serverB.value) loadBoth()
+})
+
+watch(serverSingle, () => {
+  if (compareMode.value === 'time') loadTimeCompare()
+})
+
+watch(timePreset, () => {
+  if (compareMode.value === 'time') loadTimeCompare()
+})
+
+watch(compareMode, () => {
+  if (compareMode.value === 'time') loadTimeCompare()
+  else if (serverA.value && serverB.value) loadBoth()
 })
 
 watch(selectedMetric, () => {
@@ -241,6 +339,7 @@ onMounted(async () => {
   } else if (list.length === 1) {
     serverA.value = list[0].name
   }
+  if (list.length >= 1) serverSingle.value = list[0].name
   store.connectWebSocket()
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
@@ -267,7 +366,11 @@ onUnmounted(() => {
     </div>
 
     <div class="controls glass-card">
-      <div class="server-pick">
+      <div class="mode-pick">
+        <button class="interval-btn" :class="{ active: compareMode === 'servers' }" @click="compareMode = 'servers'">🖥 双机对比</button>
+        <button class="interval-btn" :class="{ active: compareMode === 'time' }" @click="compareMode = 'time'">📅 时段对比</button>
+      </div>
+      <div v-if="compareMode === 'servers'" class="server-pick">
         <select v-model="serverA" class="count-input">
           <option v-for="s in serverList" :key="s.name" :value="s.name">{{ displayName(s.name) }}</option>
         </select>
@@ -275,6 +378,14 @@ onUnmounted(() => {
         <select v-model="serverB" class="count-input">
           <option v-for="s in serverList" :key="s.name" :value="s.name">{{ displayName(s.name) }}</option>
         </select>
+      </div>
+      <div v-else class="server-pick">
+        <select v-model="serverSingle" class="count-input">
+          <option v-for="s in serverList" :key="s.name" :value="s.name">{{ displayName(s.name) }}</option>
+        </select>
+        <span class="vs">·</span>
+        <button class="interval-btn" :class="{ active: timePreset === 'day' }" @click="timePreset = 'day'">今 vs 昨</button>
+        <button class="interval-btn" :class="{ active: timePreset === 'week' }" @click="timePreset = 'week'">本周 vs 上周</button>
       </div>
       <div class="metric-pick">
         <button
@@ -285,7 +396,7 @@ onUnmounted(() => {
           @click="selectedMetric = m.key"
         >{{ m.label }}</button>
       </div>
-      <div class="interval-pick">
+      <div v-if="compareMode === 'servers'" class="interval-pick">
         <button
           v-for="opt in INTERVALS"
           :key="opt.value"
@@ -293,6 +404,23 @@ onUnmounted(() => {
           :class="{ active: selectedInterval === opt.value }"
           @click="selectedInterval = opt.value"
         >{{ opt.label }}</button>
+      </div>
+    </div>
+
+    <div v-if="compareMode === 'time' && timeStats" class="stat-row">
+      <div class="stat-card glass-card">
+        <div class="stat-label">当前期均值</div>
+        <div class="stat-value" style="color:#7c3aed">{{ formatVal(timeStats.aAvg) }}</div>
+      </div>
+      <div class="stat-card glass-card">
+        <div class="stat-label">对比期均值</div>
+        <div class="stat-value" style="color:#007aff">{{ formatVal(timeStats.bAvg) }}</div>
+      </div>
+      <div class="stat-card glass-card">
+        <div class="stat-label">变化</div>
+        <div class="stat-value" :style="{ color: timeStats.delta == null ? '#86868b' : timeStats.delta > 0 ? '#ff3b30' : timeStats.delta < 0 ? '#34c759' : '#86868b' }">
+          {{ timeStats.delta == null ? '-' : (timeStats.delta > 0 ? '+' : '') + timeStats.delta.toFixed(1) + '%' }}
+        </div>
       </div>
     </div>
 
@@ -337,6 +465,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.mode-pick {
+  display: flex;
+  gap: 6px;
 }
 
 .server-pick .count-input {

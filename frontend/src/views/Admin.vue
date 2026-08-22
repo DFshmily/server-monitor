@@ -39,6 +39,7 @@ const METRIC_OPTIONS = computed(() => [
   { value: 'cpu', label: 'CPU 使用率 %' },
   { value: 'memory', label: '内存使用率 %' },
   { value: 'disk', label: '磁盘使用率 %' },
+  { value: 'disk_smart_temperature', label: '磁盘温度 °C' },
   { value: 'load1', label: '负载 1 分钟' },
   { value: 'load5', label: '负载 5 分钟' },
   { value: 'load15', label: '负载 15 分钟' },
@@ -48,8 +49,22 @@ const METRIC_OPTIONS = computed(() => [
   { value: 'traffic_month_total_gb', label: '本月流量合计 GB' },
   { value: 'traffic_used_percent', label: '本月流量额度使用 %' },
   { value: 'apt_updates', label: '待安装更新 个' },
-  ...customCmds.value.map(c => ({ value: `custom:${c.name}`, label: `自定义: ${c.name}（${c.server_name}）` }))
+  ...customCmds.value.map(c => ({ value: `custom:${c.name}`, label: `自定义: ${c.name}（${c.server_name}）` })),
+  ...watchProcs.value.map(p => ({ value: `process:${p}`, label: `进程守护: ${p}` }))
 ])
+
+// 进程守护候选：从两台服务器最新数据里取常见关键进程（去重）
+const watchProcs = computed(() => {
+  const names = new Set()
+  for (const s of (servers.value || [])) {
+    const procs = s?.latest?.processes?.all_names || []
+    for (const p of procs) {
+      const n = (p.name || '').toLowerCase()
+      if (['nginx', 'uvicorn', 'python3', 'dockerd', 'sshd', 'fail2ban-server', 'gunicorn', 'node'].includes(n)) names.add(n)
+    }
+  }
+  return [...names].sort()
+})
 const OP_OPTIONS = ['>', '>=', '<', '<=']
 const testNotifying = ref(false)
 const testResult = ref('')
@@ -347,9 +362,14 @@ const PROBE_TYPES = [
   { value: 'http', label: 'HTTP(S)' },
   { value: 'tcp', label: 'TCP 端口' },
   { value: 'ping', label: 'Ping' },
-  { value: 'dns', label: 'DNS 解析' }
+  { value: 'dns', label: 'DNS 解析' },
+  { value: 'ssl', label: 'SSL 证书' }
 ]
-const probeIcon = (t) => t === 'http' ? '🌐' : t === 'tcp' ? '🔌' : t === 'ping' ? '📡' : '🧭'
+const probeIcon = (t) => t === 'http' ? '🌐' : t === 'tcp' ? '🔌' : t === 'ping' ? '📡' : t === 'ssl' ? '🔐' : '🧭'
+const probeTargetHint = (t) => t === 'http' ? 'https://example.com'
+  : t === 'tcp' ? 'host:port'
+  : t === 'ssl' ? 'example.com（默认 443）'
+  : t === 'dns' ? 'example.com' : 'IP 或域名'
 const probeLatency = (p) => p.current?.latency_ms != null ? `${p.current.latency_ms} ms` : '-'
 const probeLast = (p) => p.current?.ts ? formatTs(p.current.ts) : '-'
 const fmtUptime = (p) => p.uptime_24h == null ? '暂无数据' : `${p.uptime_24h}% · ${p.checks_24h} 次`
@@ -913,8 +933,8 @@ onMounted(async () => {
         <select v-model="probeForm.type" class="count-input" style="width:110px">
           <option v-for="t in PROBE_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
         </select>
-        <input v-model="probeForm.target" class="probe-input" placeholder="目标：https://… / host:port / IP / 域名" maxlength="512" />
-        <input v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
+        <input v-model="probeForm.target" class="probe-input" :placeholder="`目标：${probeTargetHint(probeForm.type)}`" maxlength="512" />
+        <input v-if="probeForm.type === 'http'" v-model="probeForm.expected" class="probe-input" style="max-width:150px" placeholder="关键词(可选)" maxlength="256" />
         <span class="interval-unit">
           <input v-model.number="probeForm.interval" type="number" class="count-input" min="1" max="86400" title="探测间隔" placeholder="60" />
           <select v-model="probeForm.intervalUnit" class="count-input" style="width:74px" title="间隔单位">

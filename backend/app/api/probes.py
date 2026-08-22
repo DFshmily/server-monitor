@@ -10,7 +10,7 @@ from app.services import probes
 
 router = APIRouter(prefix="/api/probes", tags=["probes"])
 
-VALID_TYPES = ("http", "tcp", "ping", "dns")
+VALID_TYPES = ("http", "tcp", "ping", "dns", "ssl")
 
 
 class ProbeRuleRequest(BaseModel):
@@ -40,6 +40,8 @@ def _validate_target(type_: str, target: str):
         raise HTTPException(status_code=400, detail="TCP 目标格式应为 host:port")
     if type_ == "http" and not target.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="HTTP 目标应以 http:// 或 https:// 开头")
+    if type_ == "ssl" and (":" in target and not target.rpartition(":")[2].isdigit()):
+        raise HTTPException(status_code=400, detail="SSL 目标应为 domain 或 domain:port")
 
 
 def _validate_rule(req: ProbeRuleRequest):
@@ -49,6 +51,8 @@ def _validate_rule(req: ProbeRuleRequest):
         raise HTTPException(status_code=400, detail="TCP 目标格式应为 host:port")
     if req.type == "http" and not req.target.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="HTTP 目标应以 http:// 或 https:// 开头")
+    if req.type == "ssl" and (":" in req.target and not req.target.rpartition(":")[2].isdigit()):
+        raise HTTPException(status_code=400, detail="SSL 目标应为 domain 或 domain:port")
 
 
 @router.get("/rules", dependencies=[Depends(require_admin)])
