@@ -27,9 +27,13 @@ export const useAuthStore = defineStore('auth', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, remember })
     })
-    // Cloudflare 质询/错误页返回 HTML, res.json() 会抛
-    // "The string did not match the expected pattern" —— 拦下来给友好提示
+    // Cloudflare 质询页(403 HTML): fetch 里永远过不了挑战(PWA 无浏览器UI)。
+    // 整页跳转让 CF 挑战页正常显示, 用户点完验证后回到登录页即可。
     const ct = res.headers.get('content-type') || ''
+    if (res.status === 403 && !ct.includes('application/json')) {
+      location.href = '/login?cf=1'
+      throw new Error('正在通过网络验证…')
+    }
     if (!ct.includes('application/json')) {
       throw new Error('网络验证中，请稍等几秒后重试')
     }
