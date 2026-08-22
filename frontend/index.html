@@ -26,7 +26,20 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          // 每次打开都检查新 SW; 发现新版本立即接管并刷新页面(解决 PWA 无法下拉刷新的问题)
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'activated' && !sessionStorage.getItem('sw-reloaded')) {
+                sessionStorage.setItem('sw-reloaded', '1');
+                location.reload();
+              }
+            });
+          });
+          reg.update().catch(() => {});
+        }).catch(() => {});
       });
     }
   </script>
